@@ -173,6 +173,56 @@ export const getRecordByTaskNumber = async (
 };
 
 /**
+ * Get all records by Unique ID
+ */
+export const getRecordsByUniqueId = async (
+  uniqueId: string
+): Promise<Array<{ id: string; fields: Record<string, any> }>> => {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "Airtable API key not configured. Please set VITE_AIRTABLE_API_KEY in your .env file"
+    );
+  }
+
+  try {
+    const response = await fetch(
+      `${AIRTABLE_API_URL}?filterByFormula=${encodeURIComponent(
+        `{Unique ID} = "${uniqueId}"`
+      )}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Airtable API error: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const data = await response.json();
+
+    if (data.records && data.records.length > 0) {
+      return data.records.map((record: any) => ({
+        id: record.id,
+        fields: record.fields || {},
+      }));
+    }
+
+    return [];
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error("Failed to search Airtable");
+  }
+};
+
+/**
  * Update a single annotation field in the Annotation Notes JSON
  */
 export const updateAnnotationNote = async (
