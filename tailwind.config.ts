@@ -14,7 +14,7 @@ export default {
     },
     extend: {
       fontFamily: {
-        'sans': ['Inter', 'system-ui', 'sans-serif'],
+        'sans': ['Inter', 'Open Sans', 'system-ui', 'sans-serif'],
         'serif': ['Lora', 'Georgia', 'serif'],
       },
       colors: {
