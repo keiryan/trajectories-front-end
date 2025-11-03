@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Select,
   SelectContent,
@@ -17,6 +17,7 @@ import { Loader2, AlertCircle } from "lucide-react";
 interface AnnotationFormProps {
   url?: string;
   sectionIndex: number;
+  prefilledData?: Record<string, any>;
 }
 
 // Extract task number from URL
@@ -37,7 +38,7 @@ const extractTaskNumber = (url: string | undefined): string | null => {
   }
 };
 
-export const AnnotationForm = ({ url, sectionIndex }: AnnotationFormProps) => {
+export const AnnotationForm = ({ url, sectionIndex, prefilledData = {} }: AnnotationFormProps) => {
   const [actionCategory, setActionCategory] = useState<string>("");
   const [otherActionCategory, setOtherActionCategory] = useState<string>("");
   const [actionCorrectness, setActionCorrectness] = useState<string>("");
@@ -54,8 +55,87 @@ export const AnnotationForm = ({ url, sectionIndex }: AnnotationFormProps) => {
   });
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isPrefilled, setIsPrefilled] = useState(false);
 
   const taskNumber = extractTaskNumber(url);
+
+  // Reset form and prefilled state when section, URL, or prefilledData changes
+  useEffect(() => {
+    setIsPrefilled(false);
+    
+    // Reset form fields
+    setActionCategory("");
+    setOtherActionCategory("");
+    setActionCorrectness("");
+    setReasoningQuality("");
+    setSandboxResponse("");
+    setErrorFlags({
+      hallucination: false,
+      repetitionLoop: false,
+      misdiagnosis: false,
+      toolMisuse: false,
+      ignoredFeedback: false,
+      prematureConclusion: false,
+      scopeCreep: false,
+    });
+  }, [sectionIndex, url, prefilledData]);
+
+  // Apply prefilled data after reset
+  useEffect(() => {
+    if (!isPrefilled && Object.keys(prefilledData).length > 0) {
+      // Handle actionCategory
+      if (prefilledData.actionCategory) {
+        const categoryValue = prefilledData.actionCategory;
+        // Check if it's "other" or a custom value
+        const standardCategories = [
+          "file-exploration",
+          "code-analysis",
+          "code-modification",
+          "test-execution",
+          "environment-setup",
+        ];
+        if (standardCategories.includes(categoryValue)) {
+          setActionCategory(categoryValue);
+        } else {
+          // It's a custom "other" value
+          setActionCategory("other");
+          setOtherActionCategory(categoryValue);
+        }
+      }
+
+      // Handle other dropdown fields
+      if (prefilledData.actionCorrectness) {
+        setActionCorrectness(prefilledData.actionCorrectness);
+      }
+      if (prefilledData.reasoningQuality) {
+        setReasoningQuality(prefilledData.reasoningQuality);
+      }
+      if (prefilledData.sandboxResponse) {
+        setSandboxResponse(prefilledData.sandboxResponse);
+      }
+
+      // Handle errorFlags array
+      if (prefilledData.errorFlags && Array.isArray(prefilledData.errorFlags)) {
+        const flags: Record<string, boolean> = {
+          hallucination: false,
+          repetitionLoop: false,
+          misdiagnosis: false,
+          toolMisuse: false,
+          ignoredFeedback: false,
+          prematureConclusion: false,
+          scopeCreep: false,
+        };
+        prefilledData.errorFlags.forEach((flag: string) => {
+          if (flag in flags) {
+            flags[flag] = true;
+          }
+        });
+        setErrorFlags(flags);
+      }
+
+      setIsPrefilled(true);
+    }
+  }, [prefilledData, isPrefilled]);
 
   // Generate JSON key in format: {taskNumber}_{sectionIndex}_{fieldName}
   const getJsonKey = (fieldName: string) => {

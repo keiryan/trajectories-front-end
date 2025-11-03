@@ -39,6 +39,7 @@ const Index = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [selectedTaskLink, setSelectedTaskLink] = useState<string | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [isTasksCollapsed, setIsTasksCollapsed] = useState(false);
 
@@ -173,6 +174,7 @@ const Index = () => {
   const handleTaskClick = (task: Task) => {
     const taskLink = task.fields["Link to Task"];
     if (taskLink) {
+      setSelectedTask(task);
       fetchMarkdown(taskLink);
     } else {
       toast({
@@ -190,6 +192,7 @@ const Index = () => {
     setTasks([]);
     setMarkdown("");
     setSelectedTaskLink(null);
+    setSelectedTask(null);
     setTaskError(null);
   };
 
@@ -459,6 +462,7 @@ const Index = () => {
                     <MarkdownViewer
                       content={markdown}
                       url={selectedTaskLink || undefined}
+                      selectedTask={selectedTask || undefined}
                     />
                   </div>
                 </Card>
