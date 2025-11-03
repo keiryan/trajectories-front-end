@@ -68,6 +68,7 @@ This project uses **Vercel Serverless Functions** (API routes) to securely proxy
 **Why?** This keeps sensitive API keys on the backend (in Vercel environment variables) instead of exposing them in the frontend bundle. Since you're deploying on Vercel, it's the simplest approach—everything deploys together!
 
 **Setup:**
+
 1. Add environment variables in Vercel dashboard (see `SETUP.md`)
 2. Deploy—Vercel handles everything automatically!
 
@@ -84,7 +85,11 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
 # trajectories-front-end
+
 # trajectories-front-end
+
 # trajectories-front-end
+
 # trajectories-front-end

@@ -26,7 +26,7 @@ For local development, you can create a `.env.local` file in the root directory,
 
 ## Security Note
 
-✅ **Your Airtable API key is secure!** 
+✅ **Your Airtable API key is secure!**
 
 - The API key is stored in Vercel's environment variables (never exposed to frontend)
 - API routes are serverless functions that run on Vercel's edge
@@ -40,6 +40,7 @@ For local development, you can create a `.env.local` file in the root directory,
 4. Deploy!
 
 Vercel will automatically:
+
 - Deploy your frontend
 - Deploy your API routes (`/api/*`)
 - Everything works together seamlessly

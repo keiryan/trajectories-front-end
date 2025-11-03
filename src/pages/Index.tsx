@@ -10,6 +10,8 @@ import {
   AlertCircle,
   ListChecks,
   ExternalLink,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { getRecordsByUniqueId } from "@/lib/airtable";
@@ -37,6 +39,7 @@ const Index = () => {
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [selectedTaskLink, setSelectedTaskLink] = useState<string | null>(null);
   const [taskError, setTaskError] = useState<string | null>(null);
+  const [isTasksCollapsed, setIsTasksCollapsed] = useState(false);
 
   // Load userId from localStorage on mount
   useEffect(() => {
@@ -284,14 +287,31 @@ const Index = () => {
         )}
 
         {hasUserId && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <div className="flex gap-6 mb-8">
             {/* Tasks List */}
-            <div className="lg:col-span-1">
+            <div
+              className={`transition-all duration-300 ease-in-out shrink-0 ${
+                isTasksCollapsed
+                  ? "w-0 opacity-0 overflow-hidden pointer-events-none"
+                  : "w-full lg:w-1/3 opacity-100"
+              }`}
+            >
               <Card>
                 <CardContent className="p-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <ListChecks className="h-5 w-5 text-primary" />
-                    <h2 className="text-xl font-semibold font-sans">Tasks</h2>
+                  <div className="flex items-center justify-between gap-2 mb-4">
+                    <div className="flex items-center gap-2">
+                      <ListChecks className="h-5 w-5 text-primary" />
+                      <h2 className="text-xl font-semibold font-sans">Tasks</h2>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setIsTasksCollapsed(true)}
+                      className="h-8 w-8"
+                      aria-label="Collapse tasks"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
                   </div>
 
                   {loadingTasks && (
@@ -373,8 +393,21 @@ const Index = () => {
               </Card>
             </div>
 
+            {/* Collapse Button when tasks are collapsed */}
+            {isTasksCollapsed && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setIsTasksCollapsed(false)}
+                className="h-10 w-10 shrink-0 self-start sticky top-8"
+                aria-label="Expand tasks"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+
             {/* Markdown Viewer */}
-            <div className="lg:col-span-2">
+            <div className="flex-1 min-w-0 transition-all duration-300">
               {loading && !markdown && (
                 <div className="flex items-center justify-center min-h-[400px]">
                   <div className="text-center">
