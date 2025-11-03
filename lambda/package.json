@@ -1,0 +1,16 @@
+{
+  "name": "airtable-proxy-lambda",
+  "version": "1.0.0",
+  "description": "AWS Lambda function to proxy Airtable API requests",
+  "main": "airtable-proxy.js",
+  "scripts": {
+    "deploy": "zip -r function.zip airtable-proxy.js"
+  },
+  "keywords": [
+    "airtable",
+    "lambda",
+    "proxy"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -13,7 +13,9 @@ export const findRecordByTaskNumber = async (
 ): Promise<string | null> => {
   try {
     const response = await fetch(
-      `${API_BASE}/record-by-task-number?taskNumber=${encodeURIComponent(taskNumber)}`,
+      `${API_BASE}/record-by-task-number?taskNumber=${encodeURIComponent(
+        taskNumber
+      )}`,
       {
         method: "GET",
         headers: {
@@ -104,7 +106,9 @@ export const getRecordByTaskNumber = async (
 ): Promise<{ id: string; fields: Record<string, any> } | null> => {
   try {
     const response = await fetch(
-      `${API_BASE}/record-by-task-number?taskNumber=${encodeURIComponent(taskNumber)}`,
+      `${API_BASE}/record-by-task-number?taskNumber=${encodeURIComponent(
+        taskNumber
+      )}`,
       {
         method: "GET",
         headers: {
@@ -139,7 +143,9 @@ export const getRecordsByUniqueId = async (
 ): Promise<Array<{ id: string; fields: Record<string, any> }>> => {
   try {
     const response = await fetch(
-      `${API_BASE}/records-by-unique-id?uniqueId=${encodeURIComponent(uniqueId)}`,
+      `${API_BASE}/records-by-unique-id?uniqueId=${encodeURIComponent(
+        uniqueId
+      )}`,
       {
         method: "GET",
         headers: {
