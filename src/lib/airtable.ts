@@ -1,14 +1,5 @@
-const AIRTABLE_BASE_ID = "app8layDpsoR8AYD9";
-const AIRTABLE_TABLE_NAME = "Trajectories";
-const AIRTABLE_API_URL = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_TABLE_NAME}`;
-
-// Get API key from environment variable
-// In production, this should be set as an environment variable
-const getApiKey = () => {
-  // For now, using import.meta.env which is Vite's way of handling env vars
-  // User needs to set VITE_AIRTABLE_API_KEY in their .env file
-  return import.meta.env.VITE_AIRTABLE_API_KEY || "";
-};
+// API base path - uses Vercel API routes
+const API_BASE = "/api";
 
 export interface AirtableUpdateFields {
   [key: string]: string | boolean | string[];
@@ -20,37 +11,29 @@ export interface AirtableUpdateFields {
 export const findRecordByTaskNumber = async (
   taskNumber: string
 ): Promise<string | null> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error(
-      "Airtable API key not configured. Please set VITE_AIRTABLE_API_KEY in your .env file"
-    );
-  }
-
   try {
-    // Search for record where Task Number matches
     const response = await fetch(
-      `${AIRTABLE_API_URL}?filterByFormula=${encodeURIComponent(
-        `{Task Number} = "${taskNumber}"`
-      )}`,
+      `${API_BASE}/record-by-task-number?taskNumber=${encodeURIComponent(taskNumber)}`,
       {
+        method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
       }
     );
 
     if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
       throw new Error(
-        `Airtable API error: ${response.status} ${response.statusText}`
+        errorData.error ||
+          `API error: ${response.status} ${response.statusText}`
       );
     }
 
     const data = await response.json();
 
-    if (data.records && data.records.length > 0) {
-      return data.records[0].id;
+    if (data && data.id) {
+      return data.id;
     }
 
     return null;
@@ -69,18 +52,10 @@ export const updateRecord = async (
   recordId: string,
   fields: AirtableUpdateFields
 ): Promise<void> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error(
-      "Airtable API key not configured. Please set VITE_AIRTABLE_API_KEY in your .env file"
-    );
-  }
-
   try {
-    const response = await fetch(`${AIRTABLE_API_URL}/${recordId}`, {
+    const response = await fetch(`${API_BASE}/record/${recordId}`, {
       method: "PATCH",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -91,9 +66,8 @@ export const updateRecord = async (
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(
-        `Airtable API error: ${response.status} ${
-          response.statusText
-        }. ${JSON.stringify(errorData)}`
+        errorData.error ||
+          `API error: ${response.status} ${response.statusText}`
       );
     }
   } catch (error) {
@@ -128,42 +102,27 @@ export const findAndUpdateRecord = async (
 export const getRecordByTaskNumber = async (
   taskNumber: string
 ): Promise<{ id: string; fields: Record<string, any> } | null> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error(
-      "Airtable API key not configured. Please set VITE_AIRTABLE_API_KEY in your .env file"
-    );
-  }
-
   try {
     const response = await fetch(
-      `${AIRTABLE_API_URL}?filterByFormula=${encodeURIComponent(
-        `{Task Number} = "${taskNumber}"`
-      )}`,
+      `${API_BASE}/record-by-task-number?taskNumber=${encodeURIComponent(taskNumber)}`,
       {
+        method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
       }
     );
 
     if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
       throw new Error(
-        `Airtable API error: ${response.status} ${response.statusText}`
+        errorData.error ||
+          `API error: ${response.status} ${response.statusText}`
       );
     }
 
     const data = await response.json();
-
-    if (data.records && data.records.length > 0) {
-      return {
-        id: data.records[0].id,
-        fields: data.records[0].fields || {},
-      };
-    }
-
-    return null;
+    return data;
   } catch (error) {
     if (error instanceof Error) {
       throw error;
@@ -178,42 +137,27 @@ export const getRecordByTaskNumber = async (
 export const getRecordsByUniqueId = async (
   uniqueId: string
 ): Promise<Array<{ id: string; fields: Record<string, any> }>> => {
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    throw new Error(
-      "Airtable API key not configured. Please set VITE_AIRTABLE_API_KEY in your .env file"
-    );
-  }
-
   try {
     const response = await fetch(
-      `${AIRTABLE_API_URL}?filterByFormula=${encodeURIComponent(
-        `{Unique ID} = "${uniqueId}"`
-      )}`,
+      `${API_BASE}/records-by-unique-id?uniqueId=${encodeURIComponent(uniqueId)}`,
       {
+        method: "GET",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
       }
     );
 
     if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
       throw new Error(
-        `Airtable API error: ${response.status} ${response.statusText}`
+        errorData.error ||
+          `API error: ${response.status} ${response.statusText}`
       );
     }
 
     const data = await response.json();
-
-    if (data.records && data.records.length > 0) {
-      return data.records.map((record: any) => ({
-        id: record.id,
-        fields: record.fields || {},
-      }));
-    }
-
-    return [];
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     if (error instanceof Error) {
       throw error;
