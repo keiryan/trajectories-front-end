@@ -37,7 +37,7 @@ All colors MUST be HSL.
     --ring: 217 91% 60%;
 
     --radius: 0.5rem;
-    
+
     /* Markdown-specific tokens */
     --markdown-heading: 220 13% 13%;
     --markdown-text: 220 13% 18%;
@@ -94,7 +94,7 @@ All colors MUST be HSL.
     --border: 220 13% 20%;
     --input: 220 13% 20%;
     --ring: 217 91% 60%;
-    
+
     /* Markdown-specific tokens for dark mode */
     --markdown-heading: 280 100% 85%;
     --markdown-text: 220 13% 90%;
@@ -122,6 +122,7 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+    background-color: #121417;
   }
 }

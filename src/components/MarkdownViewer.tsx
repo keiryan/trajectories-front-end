@@ -384,7 +384,7 @@ export const MarkdownViewer = ({ content, url }: MarkdownViewerProps) => {
   };
 
   return (
-    <article className="markdown-content font-serif text-markdown-text break-words max-w-full">
+    <article className="markdown-content font-sans text-markdown-text break-words max-w-full">
       {segments.map((segment, index) => {
         if (segment.type === "annotation") {
           // Calculate section index (number of annotation forms before this one)

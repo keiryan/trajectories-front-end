@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
+import { MarkdownColorSettings } from "@/components/MarkdownColorSettings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -204,21 +205,25 @@ const Index = () => {
               </h1>
             </div>
 
-            {hasUserId && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground font-sans">
-                  User ID: {userId || localStorage.getItem(USER_ID_STORAGE_KEY)}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleClearUserId}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  Change User
-                </Button>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              {hasUserId && (
+                <>
+                  <span className="text-sm text-muted-foreground font-sans">
+                    User ID:{" "}
+                    {userId || localStorage.getItem(USER_ID_STORAGE_KEY)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearUserId}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    Change User
+                  </Button>
+                </>
+              )}
+              <MarkdownColorSettings />
+            </div>
           </div>
         </div>
       </header>
