@@ -5,9 +5,19 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { AnnotationForm } from "./AnnotationForm";
 import { useEffect } from "react";
 
+interface Task {
+  id: string;
+  fields: {
+    "Task Number"?: string;
+    "Annotation Notes"?: string;
+    [key: string]: any;
+  };
+}
+
 interface MarkdownViewerProps {
   content: string;
   url?: string;
+  selectedTask?: Task;
 }
 
 // Extract text content from React children
@@ -89,9 +99,73 @@ const extractAnchorIds = (content: string): Map<string, string> => {
   return anchorMap;
 };
 
-export const MarkdownViewer = ({ content, url }: MarkdownViewerProps) => {
+export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerProps) => {
   // Extract anchor IDs from the content
   const anchorIds = extractAnchorIds(content);
+
+  // Parse Annotation Notes and organize by section index
+  const parseAnnotationNotes = (): Record<number, Record<string, any>> => {
+    const sectionData: Record<number, Record<string, any>> = {};
+    
+    if (!selectedTask?.fields["Annotation Notes"]) {
+      return sectionData;
+    }
+
+    try {
+      const annotationNotesStr = selectedTask.fields["Annotation Notes"];
+      let annotationNotes: Record<string, any> = {};
+      
+      if (typeof annotationNotesStr === "string") {
+        annotationNotes = JSON.parse(annotationNotesStr);
+      } else if (typeof annotationNotesStr === "object") {
+        annotationNotes = annotationNotesStr;
+      }
+
+      // Extract task number from URL or selected task
+      const taskNumber = selectedTask?.fields["Task Number"] || 
+        (url ? extractTaskNumberFromUrl(url) : null);
+
+      if (!taskNumber) {
+        return sectionData;
+      }
+
+      // Parse keys in format: {taskNumber}_{sectionIndex}_{fieldName}
+      Object.entries(annotationNotes).forEach(([key, value]) => {
+        const pattern = new RegExp(`^${taskNumber}_(\\d+)_(.+)$`);
+        const match = key.match(pattern);
+        
+        if (match) {
+          const sectionIndex = parseInt(match[1], 10);
+          const fieldName = match[2];
+          
+          if (!sectionData[sectionIndex]) {
+            sectionData[sectionIndex] = {};
+          }
+          
+          sectionData[sectionIndex][fieldName] = value;
+        }
+      });
+    } catch (error) {
+      console.warn("Failed to parse Annotation Notes:", error);
+    }
+
+    return sectionData;
+  };
+
+  // Helper to extract task number from URL
+  const extractTaskNumberFromUrl = (url: string): string | null => {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split("/");
+      const fileName = pathParts[pathParts.length - 1];
+      const match = fileName.match(/^(\d+)\.md$/);
+      return match ? match[1] : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const annotationDataBySection = parseAnnotationNotes();
 
   // Create a helper to get ID for a heading
   const getHeadingId = (children: any, defaultId?: string): string => {
@@ -391,11 +465,13 @@ export const MarkdownViewer = ({ content, url }: MarkdownViewerProps) => {
           const sectionIndex =
             segments.slice(0, index).filter((s) => s.type === "annotation")
               .length + 1;
+          const prefilledData = annotationDataBySection[sectionIndex] || {};
           return (
             <AnnotationForm
               key={`annotation-${index}`}
               url={url}
               sectionIndex={sectionIndex}
+              prefilledData={prefilledData}
             />
           );
         }
