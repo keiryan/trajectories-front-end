@@ -147,3 +147,4 @@ AWS Lambda has a generous free tier:
 - 400,000 GB-seconds of compute time per month
 
 This should cover most use cases with minimal to no cost.
+
