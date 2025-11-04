@@ -68,6 +68,7 @@ const Index = () => {
 
   const sectionAnchorsRef = useRef<SectionAnchor[]>([]);
   const recalcRafRef = useRef<number | null>(null);
+  const currentSectionIndexRef = useRef<number>(-1);
 
   // Load userId from localStorage on mount
   useEffect(() => {
@@ -79,62 +80,32 @@ const Index = () => {
     }
   }, []);
 
-  // Show/hide jump to top button based on scroll position - throttled for performance
-  useEffect(() => {
-    let rafId: number | null = null;
-    let lastShowJumpToTop = false;
-
-    const handleScroll = () => {
-      // Cancel any pending animation frame
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-
-      rafId = window.requestAnimationFrame(() => {
-        const showJumpToTop = window.scrollY > 300;
-        // Only update state if value actually changed
-        if (showJumpToTop !== lastShowJumpToTop) {
-          setShowJumpToTop(showJumpToTop);
-          lastShowJumpToTop = showJumpToTop;
-        }
-        rafId = null;
-      });
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll(); // Check initial position
-
-    return () => {
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-      window.removeEventListener("scroll", handleScroll);
-    };
-  }, []);
-
-  const evaluateCurrentSection = useCallback(() => {
+  const evaluateCurrentSection = useCallback((scrollY?: number) => {
     const sections = sectionAnchorsRef.current;
 
     if (sections.length === 0) {
+      currentSectionIndexRef.current = -1;
       setCurrentSection((prev) => (prev ? null : prev));
       return;
     }
 
-    const scrollPosition = window.scrollY + SECTION_SCROLL_OFFSET;
-    let activeSection: SectionAnchor | null = null;
+    const scrollPosition = (scrollY ?? window.scrollY) + SECTION_SCROLL_OFFSET;
 
-    for (let index = 0; index < sections.length; index += 1) {
-      const section = sections[index];
-      if (section.top <= scrollPosition) {
-        activeSection = section;
-      } else {
-        break;
-      }
+    let sectionIndex = currentSectionIndexRef.current;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      sectionIndex = 0;
     }
 
-    if (!activeSection) {
-      activeSection = sections[0];
+    while (sectionIndex < sections.length - 1 && sections[sectionIndex + 1].top <= scrollPosition) {
+      sectionIndex += 1;
     }
+
+    while (sectionIndex > 0 && sections[sectionIndex].top > scrollPosition) {
+      sectionIndex -= 1;
+    }
+
+    const activeSection = sections[sectionIndex] ?? sections[0];
+    currentSectionIndexRef.current = sectionIndex;
 
     setCurrentSection((prev) => {
       if (prev?.id === activeSection?.id) {
@@ -150,6 +121,7 @@ const Index = () => {
     if (!article) {
       if (sectionAnchorsRef.current.length > 0) {
         sectionAnchorsRef.current = [];
+        currentSectionIndexRef.current = -1;
         setHasSectionAnchors(false);
         setCurrentSection((prev) => (prev ? null : prev));
       }
@@ -169,16 +141,19 @@ const Index = () => {
     sections.sort((a, b) => a.top - b.top);
 
     sectionAnchorsRef.current = sections;
+    currentSectionIndexRef.current = sections.length > 0 ? 0 : -1;
     setHasSectionAnchors(sections.length > 0);
   }, []);
 
   useEffect(() => {
     sectionAnchorsRef.current = [];
+    currentSectionIndexRef.current = -1;
 
     if (!markdown) {
       setHasSectionAnchors(false);
       setCurrentSection((prev) => (prev ? null : prev));
       setSavedPosition((prev) => (prev ? null : prev));
+      setShowJumpToTop((prev) => (prev ? false : prev));
       return;
     }
 
@@ -230,10 +205,6 @@ const Index = () => {
   }, [markdown, recalcSections, evaluateCurrentSection]);
 
   useEffect(() => {
-    if (!markdown) {
-      return;
-    }
-
     let rafId: number | null = null;
 
     const handleScroll = () => {
@@ -242,7 +213,15 @@ const Index = () => {
       }
 
       rafId = window.requestAnimationFrame(() => {
-        evaluateCurrentSection();
+        const scrollY = window.scrollY;
+        const shouldShowJumpToTop = scrollY > 300;
+
+        setShowJumpToTop((prev) => (prev === shouldShowJumpToTop ? prev : shouldShowJumpToTop));
+
+        if (markdown && sectionAnchorsRef.current.length > 0) {
+          evaluateCurrentSection(scrollY);
+        }
+
         rafId = null;
       });
     };
