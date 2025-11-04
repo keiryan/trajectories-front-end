@@ -13,6 +13,7 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ArrowUpToLine,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { getRecordsByUniqueId } from "@/lib/airtable";
@@ -42,6 +43,7 @@ const Index = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [isTasksCollapsed, setIsTasksCollapsed] = useState(false);
+  const [showJumpToTop, setShowJumpToTop] = useState(false);
 
   // Load userId from localStorage on mount
   useEffect(() => {
@@ -52,6 +54,43 @@ const Index = () => {
       fetchTasksForUser(storedUserId);
     }
   }, []);
+
+  // Show/hide jump to top button based on scroll position - throttled for performance
+  useEffect(() => {
+    let rafId: number | null = null;
+    let lastShowJumpToTop = false;
+
+    const handleScroll = () => {
+      // Cancel any pending animation frame
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+
+      rafId = window.requestAnimationFrame(() => {
+        const showJumpToTop = window.scrollY > 300;
+        // Only update state if value actually changed
+        if (showJumpToTop !== lastShowJumpToTop) {
+          setShowJumpToTop(showJumpToTop);
+          lastShowJumpToTop = showJumpToTop;
+        }
+        rafId = null;
+      });
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll(); // Check initial position
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const fetchTasksForUser = async (id: string) => {
     setLoadingTasks(true);
@@ -199,11 +238,11 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-3">
-              <Github className="h-6 w-6 text-primary" />
-              <h1 className="text-2xl font-semibold font-sans text-foreground">
+        <div className="container mx-auto px-4 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Github className="h-5 w-5 text-primary" />
+              <h1 className="text-xl font-semibold font-sans text-foreground">
                 Markdown Viewer
               </h1>
             </div>
@@ -211,7 +250,7 @@ const Index = () => {
             <div className="flex items-center gap-2">
               {hasUserId && (
                 <>
-                  <span className="text-sm text-muted-foreground font-sans">
+                  <span className="text-xs text-muted-foreground font-sans">
                     User ID:{" "}
                     {userId || localStorage.getItem(USER_ID_STORAGE_KEY)}
                   </span>
@@ -219,7 +258,7 @@ const Index = () => {
                     variant="ghost"
                     size="sm"
                     onClick={handleClearUserId}
-                    className="text-muted-foreground hover:text-foreground"
+                    className="text-muted-foreground hover:text-foreground h-8 px-2 text-xs"
                   >
                     Change User
                   </Button>
@@ -471,6 +510,17 @@ const Index = () => {
           </div>
         )}
       </main>
+      {showJumpToTop && (
+        <Button
+          variant="outline"
+          size="icon"
+          className="fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-2 hover:bg-background"
+          onClick={scrollToTop}
+          aria-label="Jump to top"
+        >
+          <ArrowUpToLine className="h-5 w-5" />
+        </Button>
+      )}
     </div>
   );
 };

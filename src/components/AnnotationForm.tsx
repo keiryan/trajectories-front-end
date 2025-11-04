@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Select,
   SelectContent,
@@ -14,10 +14,19 @@ import { updateAnnotationNote } from "@/lib/airtable";
 import { toast } from "@/hooks/use-toast";
 import { Loader2, AlertCircle } from "lucide-react";
 
+interface Task {
+  id: string;
+  fields: {
+    "Task Number"?: string;
+    [key: string]: any;
+  };
+}
+
 interface AnnotationFormProps {
   url?: string;
   sectionIndex: number;
   prefilledData?: Record<string, any>;
+  selectedTask?: Task;
 }
 
 // Extract task number from URL
@@ -38,7 +47,12 @@ const extractTaskNumber = (url: string | undefined): string | null => {
   }
 };
 
-export const AnnotationForm = ({ url, sectionIndex, prefilledData = {} }: AnnotationFormProps) => {
+export const AnnotationForm = ({
+  url,
+  sectionIndex,
+  prefilledData = {},
+  selectedTask,
+}: AnnotationFormProps) => {
   const [actionCategory, setActionCategory] = useState<string>("");
   const [otherActionCategory, setOtherActionCategory] = useState<string>("");
   const [actionCorrectness, setActionCorrectness] = useState<string>("");
@@ -57,27 +71,49 @@ export const AnnotationForm = ({ url, sectionIndex, prefilledData = {} }: Annota
   const [error, setError] = useState<string | null>(null);
   const [isPrefilled, setIsPrefilled] = useState(false);
 
-  const taskNumber = extractTaskNumber(url);
+  // Use ref to track previous prefilledData to avoid unnecessary resets
+  const prevPrefilledDataRef = useRef<string>("");
+  const prevSectionIndexRef = useRef<number>(-1);
+  const prevUrlRef = useRef<string | undefined>(undefined);
 
-  // Reset form and prefilled state when section, URL, or prefilledData changes
+  // Get task number from selectedTask first, then fall back to URL extraction
+  const taskNumber =
+    selectedTask?.fields["Task Number"] || extractTaskNumber(url);
+
+  // Reset form and prefilled state when section, URL, or prefilledData actually changes
   useEffect(() => {
-    setIsPrefilled(false);
-    
-    // Reset form fields
-    setActionCategory("");
-    setOtherActionCategory("");
-    setActionCorrectness("");
-    setReasoningQuality("");
-    setSandboxResponse("");
-    setErrorFlags({
-      hallucination: false,
-      repetitionLoop: false,
-      misdiagnosis: false,
-      toolMisuse: false,
-      ignoredFeedback: false,
-      prematureConclusion: false,
-      scopeCreep: false,
-    });
+    // Create a stable string representation of prefilledData for comparison
+    const prefilledDataStr = JSON.stringify(prefilledData);
+
+    // Only reset if sectionIndex, url, or prefilledData actually changed
+    const sectionChanged = prevSectionIndexRef.current !== sectionIndex;
+    const urlChanged = prevUrlRef.current !== url;
+    const dataChanged = prevPrefilledDataRef.current !== prefilledDataStr;
+
+    if (sectionChanged || urlChanged || dataChanged) {
+      setIsPrefilled(false);
+
+      // Reset form fields
+      setActionCategory("");
+      setOtherActionCategory("");
+      setActionCorrectness("");
+      setReasoningQuality("");
+      setSandboxResponse("");
+      setErrorFlags({
+        hallucination: false,
+        repetitionLoop: false,
+        misdiagnosis: false,
+        toolMisuse: false,
+        ignoredFeedback: false,
+        prematureConclusion: false,
+        scopeCreep: false,
+      });
+
+      // Update refs
+      prevSectionIndexRef.current = sectionIndex;
+      prevUrlRef.current = url;
+      prevPrefilledDataRef.current = prefilledDataStr;
+    }
   }, [sectionIndex, url, prefilledData]);
 
   // Apply prefilled data after reset
@@ -146,11 +182,11 @@ export const AnnotationForm = ({ url, sectionIndex, prefilledData = {} }: Annota
   const saveToAirtable = useCallback(
     async (fieldName: string, value: string | boolean | string[]) => {
       if (!taskNumber) {
-        setError("Unable to extract task number from URL");
+        setError("Unable to determine task number");
         toast({
           title: "Error",
           description:
-            "Unable to extract task number from URL. Please check the URL format.",
+            "Unable to determine task number. Please ensure a task is selected.",
           variant: "destructive",
         });
         return;
@@ -234,8 +270,8 @@ export const AnnotationForm = ({ url, sectionIndex, prefilledData = {} }: Annota
           <div className="flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
             <div className="text-sm text-destructive font-sans">
-              <strong>Warning:</strong> Unable to extract task number from URL.
-              Changes will not be saved to Airtable.
+              <strong>Warning:</strong> Unable to determine task number. Changes
+              will not be saved to Airtable.
             </div>
           </div>
         </div>

@@ -3,7 +3,7 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { AnnotationForm } from "./AnnotationForm";
-import { useEffect } from "react";
+import { useEffect, useRef, useMemo, useCallback } from "react";
 
 interface Task {
   id: string;
@@ -48,6 +48,10 @@ const generateId = (children: any): string => {
 // Pattern: <a id="m-2"></a> followed by a heading
 const extractAnchorIds = (content: string): Map<string, string> => {
   const anchorMap = new Map<string, string>();
+
+  if (!content || typeof content !== 'string') {
+    return anchorMap;
+  }
 
   // Parse line by line to find anchor tags followed by headings
   const lines = content.split("\n");
@@ -100,11 +104,29 @@ const extractAnchorIds = (content: string): Map<string, string> => {
 };
 
 export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerProps) => {
-  // Extract anchor IDs from the content
-  const anchorIds = extractAnchorIds(content);
+  // Extract anchor IDs from the content - memoized
+  const anchorIds = useMemo(() => {
+    if (!content || typeof content !== 'string') return new Map<string, string>();
+    return extractAnchorIds(content);
+  }, [content]);
+  
+  const articleRef = useRef<HTMLElement>(null);
 
-  // Parse Annotation Notes and organize by section index
-  const parseAnnotationNotes = (): Record<number, Record<string, any>> => {
+  // Helper to extract task number from URL
+  const extractTaskNumberFromUrl = useCallback((url: string): string | null => {
+    try {
+      const urlObj = new URL(url);
+      const pathParts = urlObj.pathname.split("/");
+      const fileName = pathParts[pathParts.length - 1];
+      const match = fileName.match(/^(\d+)\.md$/);
+      return match ? match[1] : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Parse Annotation Notes and organize by section index - memoized
+  const annotationDataBySection = useMemo((): Record<number, Record<string, any>> => {
     const sectionData: Record<number, Record<string, any>> = {};
     
     if (!selectedTask?.fields["Annotation Notes"]) {
@@ -150,25 +172,70 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
     }
 
     return sectionData;
-  };
+  }, [selectedTask, url, extractTaskNumberFromUrl]);
 
-  // Helper to extract task number from URL
-  const extractTaskNumberFromUrl = (url: string): string | null => {
-    try {
-      const urlObj = new URL(url);
-      const pathParts = urlObj.pathname.split("/");
-      const fileName = pathParts[pathParts.length - 1];
-      const match = fileName.match(/^(\d+)\.md$/);
-      return match ? match[1] : null;
-    } catch {
-      return null;
+  // Pre-process content to remove all anchor tags (they'll be handled by heading IDs) - memoized
+  const processedContent = useMemo(() => {
+    if (!content || typeof content !== 'string') {
+      return '';
     }
-  };
+    
+    // Remove all anchor tags completely - match both <a id="..."></a> and <a id="..."/> formats
+    // Handles single/double quotes, optional whitespace, and optional newlines
+    return content.replace(/<a\s+id=["'][^"']+["']\s*(?:\/>|><\/a>)\s*\n?/gi, "");
+  }, [content]);
 
-  const annotationDataBySection = parseAnnotationNotes();
+  // Split processed content by <!-- MD ... --> comments and create segments - memoized
+  const segments = useMemo(() => {
+    if (!processedContent || typeof processedContent !== 'string') {
+      return [{ type: "markdown" as const, content: "" }];
+    }
+    
+    const mdCommentRegex = /<!--\s*MD[\s\S]*?-->/gi;
+    const segmentsArray: Array<{ type: "markdown" | "annotation"; content: string }> = [];
 
-  // Create a helper to get ID for a heading
-  const getHeadingId = (children: any, defaultId?: string): string => {
+    let lastIndex = 0;
+    let match;
+
+    while ((match = mdCommentRegex.exec(processedContent)) !== null) {
+      // Add markdown before the comment
+      if (match.index > lastIndex) {
+        segmentsArray.push({
+          type: "markdown",
+          content: processedContent.substring(lastIndex, match.index),
+        });
+      }
+
+      // Add annotation form placeholder
+      segmentsArray.push({
+        type: "annotation",
+        content: "",
+      });
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Add remaining markdown
+    if (lastIndex < processedContent.length) {
+      segmentsArray.push({
+        type: "markdown",
+        content: processedContent.substring(lastIndex),
+      });
+    }
+
+    // If no comments found, just render the full content
+    if (segmentsArray.length === 0) {
+      segmentsArray.push({
+        type: "markdown",
+        content: processedContent,
+      });
+    }
+
+    return segmentsArray;
+  }, [processedContent]);
+
+  // Create a helper to get ID for a heading - defined before markdownComponents
+  const getHeadingId = useCallback((children: any, defaultId?: string): string => {
     // First check if there's an explicit anchor ID mapped
     const textKey = generateId(children);
     if (anchorIds.has(textKey)) {
@@ -176,7 +243,8 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
     }
     // Otherwise use the default generated ID or provided default
     return defaultId || textKey;
-  };
+  }, [anchorIds]);
+
 
   // Handle hash navigation on mount and when hash changes
   useEffect(() => {
@@ -223,55 +291,8 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
     };
   }, [content]);
 
-  // Pre-process content to remove anchor tags (they'll be handled by heading IDs)
-  const processedContent = content.replace(
-    /<a\s+id=["'][^"']+["']\s*><\/a>\s*\n?/g,
-    ""
-  );
-
-  // Split processed content by <!-- MD ... --> comments and create segments
-  const mdCommentRegex = /<!--\s*MD[\s\S]*?-->/gi;
-  const segments: Array<{ type: "markdown" | "annotation"; content: string }> =
-    [];
-
-  let lastIndex = 0;
-  let match;
-
-  while ((match = mdCommentRegex.exec(processedContent)) !== null) {
-    // Add markdown before the comment
-    if (match.index > lastIndex) {
-      segments.push({
-        type: "markdown",
-        content: processedContent.substring(lastIndex, match.index),
-      });
-    }
-
-    // Add annotation form placeholder
-    segments.push({
-      type: "annotation",
-      content: "",
-    });
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Add remaining markdown
-  if (lastIndex < processedContent.length) {
-    segments.push({
-      type: "markdown",
-      content: processedContent.substring(lastIndex),
-    });
-  }
-
-  // If no comments found, just render the full content
-  if (segments.length === 0) {
-    segments.push({
-      type: "markdown",
-      content: processedContent,
-    });
-  }
-
-  const markdownComponents = {
+  // Memoize markdownComponents to prevent recreation on every render
+  const markdownComponents = useMemo(() => ({
     h1: ({ children, ...props }: any) => {
       const id = getHeadingId(children);
       return (
@@ -455,29 +476,33 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
     img: ({ src, alt }) => (
       <img src={src} alt={alt} className="max-w-full h-auto rounded-lg my-6" />
     ),
-  };
+  }), [anchorIds]);
 
   return (
-    <article className="markdown-content font-sans text-markdown-text break-words max-w-full">
-      {segments.map((segment, index) => {
+    <article ref={articleRef} className="markdown-content font-sans text-markdown-text break-words max-w-full">
+        {segments.map((segment, index) => {
         if (segment.type === "annotation") {
           // Calculate section index (number of annotation forms before this one)
           const sectionIndex =
             segments.slice(0, index).filter((s) => s.type === "annotation")
               .length + 1;
+          // Use memoized annotation data to prevent unnecessary resets
           const prefilledData = annotationDataBySection[sectionIndex] || {};
           return (
-            <AnnotationForm
-              key={`annotation-${index}`}
-              url={url}
-              sectionIndex={sectionIndex}
-              prefilledData={prefilledData}
-            />
+            <div data-annotation-section={sectionIndex}>
+              <AnnotationForm
+                key={`annotation-${sectionIndex}-${url || ''}`}
+                url={url}
+                sectionIndex={sectionIndex}
+                prefilledData={prefilledData}
+                selectedTask={selectedTask}
+              />
+            </div>
           );
         }
         return (
           <ReactMarkdown
-            key={`markdown-${index}`}
+            key={`markdown-${index}-${segment.content.substring(0, 20)}`}
             remarkPlugins={[remarkGfm]}
             components={markdownComponents}
           >
@@ -485,6 +510,6 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
           </ReactMarkdown>
         );
       })}
-    </article>
+      </article>
   );
 };
