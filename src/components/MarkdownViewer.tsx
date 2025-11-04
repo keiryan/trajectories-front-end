@@ -234,16 +234,21 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
     return segmentsArray;
   }, [processedContent]);
 
-  // Create a helper to get ID for a heading - defined before markdownComponents
-  const getHeadingId = useCallback((children: any, defaultId?: string): string => {
-    // First check if there's an explicit anchor ID mapped
-    const textKey = generateId(children);
-    if (anchorIds.has(textKey)) {
-      return anchorIds.get(textKey)!;
-    }
-    // Otherwise use the default generated ID or provided default
-    return defaultId || textKey;
-  }, [anchorIds]);
+  // Create a helper to get metadata for a heading - memoized
+  const getHeadingMetadata = useCallback(
+    (children: any, defaultId?: string) => {
+      const textKey = generateId(children);
+      const headingText = extractText(children) || textKey;
+      const anchorId = anchorIds.get(textKey);
+
+      return {
+        id: anchorId || defaultId || textKey,
+        isAnchorSection: Boolean(anchorId),
+        title: headingText,
+      };
+    },
+    [anchorIds]
+  );
 
 
   // Handle hash navigation on mount and when hash changes
@@ -294,72 +299,96 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
   // Memoize markdownComponents to prevent recreation on every render
   const markdownComponents = useMemo(() => ({
     h1: ({ children, ...props }: any) => {
-      const id = getHeadingId(children);
+      const providedId = props?.id;
+      const { id, isAnchorSection, title } = getHeadingMetadata(children, providedId);
+      const { id: _ignored, className: _ignoredClassName, ...restProps } = props || {};
       return (
         <h1
           id={id}
+          data-anchor-section={isAnchorSection ? "true" : undefined}
+          data-section-title={title}
           className="text-4xl font-bold text-markdown-heading mb-6 mt-8 first:mt-0 scroll-mt-20"
-          {...props}
+          {...restProps}
         >
           {children}
         </h1>
       );
     },
     h2: ({ children, ...props }: any) => {
-      const id = getHeadingId(children);
+      const providedId = props?.id;
+      const { id, isAnchorSection, title } = getHeadingMetadata(children, providedId);
+      const { id: _ignored, className: _ignoredClassName, ...restProps } = props || {};
       return (
         <h2
           id={id}
+          data-anchor-section={isAnchorSection ? "true" : undefined}
+          data-section-title={title}
           className="text-3xl font-bold text-markdown-heading mb-5 mt-7 border-b border-border pb-2 scroll-mt-20"
-          {...props}
+          {...restProps}
         >
           {children}
         </h2>
       );
     },
     h3: ({ children, ...props }: any) => {
-      const id = getHeadingId(children);
+      const providedId = props?.id;
+      const { id, isAnchorSection, title } = getHeadingMetadata(children, providedId);
+      const { id: _ignored, className: _ignoredClassName, ...restProps } = props || {};
       return (
         <h3
           id={id}
+          data-anchor-section={isAnchorSection ? "true" : undefined}
+          data-section-title={title}
           className="text-2xl font-semibold text-markdown-heading mb-4 mt-6 scroll-mt-20"
-          {...props}
+          {...restProps}
         >
           {children}
         </h3>
       );
     },
     h4: ({ children, ...props }: any) => {
-      const id = getHeadingId(children);
+      const providedId = props?.id;
+      const { id, isAnchorSection, title } = getHeadingMetadata(children, providedId);
+      const { id: _ignored, className: _ignoredClassName, ...restProps } = props || {};
       return (
         <h4
           id={id}
+          data-anchor-section={isAnchorSection ? "true" : undefined}
+          data-section-title={title}
           className="text-xl font-semibold text-markdown-heading mb-3 mt-5 scroll-mt-20"
-          {...props}
+          {...restProps}
         >
           {children}
         </h4>
       );
     },
     h5: ({ children, ...props }: any) => {
-      const id = getHeadingId(children);
+      const providedId = props?.id;
+      const { id, isAnchorSection, title } = getHeadingMetadata(children, providedId);
+      const { id: _ignored, className: _ignoredClassName, ...restProps } = props || {};
       return (
         <h5
           id={id}
+          data-anchor-section={isAnchorSection ? "true" : undefined}
+          data-section-title={title}
           className="text-lg font-semibold text-markdown-heading mb-3 mt-4 scroll-mt-20"
-          {...props}
+          {...restProps}
         >
           {children}
         </h5>
       );
     },
     h6: ({ children, ...props }: any) => {
-      const id = getHeadingId(children);
+      const providedId = props?.id;
+      const { id, isAnchorSection, title } = getHeadingMetadata(children, providedId);
+      const { id: _ignored, className: _ignoredClassName, ...restProps } = props || {};
       return (
         <h6
           id={id}
+          data-anchor-section={isAnchorSection ? "true" : undefined}
+          data-section-title={title}
           className="text-base font-semibold text-markdown-heading mb-2 mt-4 scroll-mt-20"
-          {...props}
+          {...restProps}
         >
           {children}
         </h6>
@@ -476,7 +505,7 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
     img: ({ src, alt }) => (
       <img src={src} alt={alt} className="max-w-full h-auto rounded-lg my-6" />
     ),
-  }), [anchorIds]);
+  }), [getHeadingMetadata]);
 
   return (
     <article ref={articleRef} className="markdown-content font-sans text-markdown-text break-words max-w-full">

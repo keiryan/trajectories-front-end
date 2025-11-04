@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { MarkdownColorSettings } from "@/components/MarkdownColorSettings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Loader2,
   Github,
@@ -14,11 +15,28 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpToLine,
+  ArrowUp,
+  Bookmark,
+  BookmarkPlus,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { getRecordsByUniqueId } from "@/lib/airtable";
 
 const USER_ID_STORAGE_KEY = "markdown_viewer_user_id";
+
+type SectionAnchor = {
+  id: string;
+  title: string;
+  top: number;
+};
+
+type SavedPosition = {
+  scrollY: number;
+  sectionId: string | null;
+  sectionTitle: string | null;
+};
+
+const SECTION_SCROLL_OFFSET = 160;
 
 interface Task {
   id: string;
@@ -44,6 +62,12 @@ const Index = () => {
   const [taskError, setTaskError] = useState<string | null>(null);
   const [isTasksCollapsed, setIsTasksCollapsed] = useState(false);
   const [showJumpToTop, setShowJumpToTop] = useState(false);
+  const [currentSection, setCurrentSection] = useState<{ id: string; title: string } | null>(null);
+  const [hasSectionAnchors, setHasSectionAnchors] = useState(false);
+  const [savedPosition, setSavedPosition] = useState<SavedPosition | null>(null);
+
+  const sectionAnchorsRef = useRef<SectionAnchor[]>([]);
+  const recalcRafRef = useRef<number | null>(null);
 
   // Load userId from localStorage on mount
   useEffect(() => {
@@ -88,9 +112,229 @@ const Index = () => {
     };
   }, []);
 
+  const evaluateCurrentSection = useCallback(() => {
+    const sections = sectionAnchorsRef.current;
+
+    if (sections.length === 0) {
+      setCurrentSection((prev) => (prev ? null : prev));
+      return;
+    }
+
+    const scrollPosition = window.scrollY + SECTION_SCROLL_OFFSET;
+    let activeSection: SectionAnchor | null = null;
+
+    for (let index = 0; index < sections.length; index += 1) {
+      const section = sections[index];
+      if (section.top <= scrollPosition) {
+        activeSection = section;
+      } else {
+        break;
+      }
+    }
+
+    if (!activeSection) {
+      activeSection = sections[0];
+    }
+
+    setCurrentSection((prev) => {
+      if (prev?.id === activeSection?.id) {
+        return prev;
+      }
+      return activeSection ? { id: activeSection.id, title: activeSection.title } : null;
+    });
+  }, []);
+
+  const recalcSections = useCallback(() => {
+    const article = document.querySelector<HTMLElement>(".markdown-content");
+
+    if (!article) {
+      if (sectionAnchorsRef.current.length > 0) {
+        sectionAnchorsRef.current = [];
+        setHasSectionAnchors(false);
+        setCurrentSection((prev) => (prev ? null : prev));
+      }
+      return;
+    }
+
+    const headingElements = Array.from(
+      article.querySelectorAll<HTMLElement>("[data-anchor-section='true']")
+    );
+
+    const sections = headingElements.map<SectionAnchor>((element) => ({
+      id: element.id,
+      title: element.dataset.sectionTitle?.trim() || element.textContent?.trim() || element.id,
+      top: element.getBoundingClientRect().top + window.scrollY,
+    }));
+
+    sections.sort((a, b) => a.top - b.top);
+
+    sectionAnchorsRef.current = sections;
+    setHasSectionAnchors(sections.length > 0);
+  }, []);
+
+  useEffect(() => {
+    sectionAnchorsRef.current = [];
+
+    if (!markdown) {
+      setHasSectionAnchors(false);
+      setCurrentSection((prev) => (prev ? null : prev));
+      setSavedPosition((prev) => (prev ? null : prev));
+      return;
+    }
+
+    setSavedPosition((prev) => (prev ? null : prev));
+    setCurrentSection((prev) => (prev ? null : prev));
+
+    const scheduleRecalc = () => {
+      if (recalcRafRef.current !== null) {
+        cancelAnimationFrame(recalcRafRef.current);
+      }
+
+      recalcRafRef.current = window.requestAnimationFrame(() => {
+        recalcSections();
+        evaluateCurrentSection();
+        recalcRafRef.current = null;
+      });
+    };
+
+    scheduleRecalc();
+
+    window.addEventListener("resize", scheduleRecalc);
+
+    const article = document.querySelector(".markdown-content");
+    let resizeObserver: ResizeObserver | null = null;
+
+    if (article && "ResizeObserver" in window) {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleRecalc();
+      });
+      resizeObserver.observe(article);
+    }
+
+    const timeoutIds = [
+      window.setTimeout(scheduleRecalc, 400),
+      window.setTimeout(scheduleRecalc, 1200),
+    ];
+
+    return () => {
+      if (recalcRafRef.current !== null) {
+        cancelAnimationFrame(recalcRafRef.current);
+        recalcRafRef.current = null;
+      }
+      window.removeEventListener("resize", scheduleRecalc);
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [markdown, recalcSections, evaluateCurrentSection]);
+
+  useEffect(() => {
+    if (!markdown) {
+      return;
+    }
+
+    let rafId: number | null = null;
+
+    const handleScroll = () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+
+      rafId = window.requestAnimationFrame(() => {
+        evaluateCurrentSection();
+        rafId = null;
+      });
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+
+    return () => {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [markdown, evaluateCurrentSection]);
+
+  const handleJumpToSectionTop = useCallback(() => {
+    if (!currentSection) {
+      return;
+    }
+
+    const element = document.getElementById(currentSection.id);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    const fallbackSection = sectionAnchorsRef.current.find(
+      (section) => section.id === currentSection.id
+    );
+
+    if (fallbackSection) {
+      window.scrollTo({ top: fallbackSection.top, behavior: "smooth" });
+    }
+  }, [currentSection]);
+
+  const handleMarkPosition = useCallback(() => {
+    if (!markdown) {
+      return;
+    }
+
+    const scrollY = window.scrollY;
+    const newSaved: SavedPosition = {
+      scrollY,
+      sectionId: currentSection?.id ?? null,
+      sectionTitle: currentSection?.title ?? null,
+    };
+
+    let shouldNotify = true;
+
+    setSavedPosition((prev) => {
+      if (
+        prev &&
+        prev.scrollY === newSaved.scrollY &&
+        prev.sectionId === newSaved.sectionId &&
+        prev.sectionTitle === newSaved.sectionTitle
+      ) {
+        shouldNotify = false;
+        return prev;
+      }
+      return newSaved;
+    });
+
+    if (shouldNotify) {
+      toast({
+        title: "Position saved",
+        description: newSaved.sectionTitle
+          ? `Saved within section: ${newSaved.sectionTitle}`
+          : "Saved current scroll position.",
+      });
+    }
+  }, [currentSection, markdown, toast]);
+
+  const handleReturnToMarkedPosition = useCallback(() => {
+    if (!savedPosition) {
+      return;
+    }
+
+    window.scrollTo({ top: savedPosition.scrollY, behavior: "smooth" });
+  }, [savedPosition]);
+
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const floatingButtonClass =
+    "h-12 w-12 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-2 hover:bg-background";
+
+  const shouldShowSectionTopButton = hasSectionAnchors && currentSection !== null;
+  const shouldShowMarkButton = Boolean(markdown);
+  const shouldShowReturnButton = savedPosition !== null;
+  const shouldShowFloatingControls =
+    Boolean(markdown) && (shouldShowSectionTopButton || shouldShowReturnButton || showJumpToTop || shouldShowMarkButton);
 
   const fetchTasksForUser = async (id: string) => {
     setLoadingTasks(true);
@@ -510,16 +754,88 @@ const Index = () => {
           </div>
         )}
       </main>
-      {showJumpToTop && (
-        <Button
-          variant="outline"
-          size="icon"
-          className="fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-2 hover:bg-background"
-          onClick={scrollToTop}
-          aria-label="Jump to top"
-        >
-          <ArrowUpToLine className="h-5 w-5" />
-        </Button>
+      {shouldShowFloatingControls && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
+          {shouldShowSectionTopButton && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={floatingButtonClass}
+                  onClick={handleJumpToSectionTop}
+                  aria-label="Jump to top of section"
+                >
+                  <ArrowUp className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs">
+                {currentSection?.title
+                  ? `Jump to top of section: ${currentSection.title}`
+                  : "Jump to top of current section"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {shouldShowMarkButton && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={floatingButtonClass}
+                  onClick={handleMarkPosition}
+                  aria-label="Mark current position"
+                >
+                  <BookmarkPlus className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs">
+                {currentSection?.title
+                  ? `Mark position in section: ${currentSection.title}`
+                  : "Mark current scroll position"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {shouldShowReturnButton && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={floatingButtonClass}
+                  onClick={handleReturnToMarkedPosition}
+                  aria-label="Return to saved position"
+                >
+                  <Bookmark className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs">
+                {savedPosition?.sectionTitle
+                  ? `Return to saved position (${savedPosition.sectionTitle})`
+                  : "Return to saved position"}
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {showJumpToTop && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={floatingButtonClass}
+                  onClick={scrollToTop}
+                  aria-label="Jump to top"
+                >
+                  <ArrowUpToLine className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Jump to top of document</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
       )}
     </div>
   );
