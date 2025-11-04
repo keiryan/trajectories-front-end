@@ -55,6 +55,36 @@ const extractAnchorIds = (content: string): Map<string, string> => {
 
   // Parse line by line to find anchor tags followed by headings
   const lines = content.split("\n");
+
+  const findNextHeadingLine = (startIndex: number): string | undefined => {
+    let currentIndex = startIndex;
+
+    while (currentIndex < lines.length) {
+      const trimmedLine = lines[currentIndex].trim();
+
+      if (trimmedLine === "") {
+        currentIndex++;
+        continue;
+      }
+
+      if (trimmedLine.startsWith("<!--")) {
+        // Skip entire HTML comment blocks (which may span multiple lines)
+        while (currentIndex < lines.length) {
+          const commentLine = lines[currentIndex].trim();
+          currentIndex++;
+          if (commentLine.includes("-->")) {
+            break;
+          }
+        }
+        continue;
+      }
+
+      return trimmedLine;
+    }
+
+    return undefined;
+  };
+
   for (let i = 0; i < lines.length; i++) {
     // Look for anchor tag on current line or combined with next line
     const currentLine = lines[i].trim();
@@ -62,13 +92,8 @@ const extractAnchorIds = (content: string): Map<string, string> => {
 
     if (anchorMatch) {
       const anchorId = anchorMatch[1];
-      // Check following lines (skipping optional blank lines) for the heading
-      let nextIndex = i + 1;
-      while (nextIndex < lines.length && lines[nextIndex].trim() === "") {
-        nextIndex++;
-      }
-
-      const nextLine = lines[nextIndex]?.trim();
+      // Check following lines (skipping optional blank lines and comments) for the heading
+      const nextLine = findNextHeadingLine(i + 1);
       if (nextLine && nextLine.match(/^#{1,6}\s+/)) {
         // Extract heading text (remove # and whitespace)
         const headingText = nextLine.replace(/^#{1,6}\s+/, "").trim();
