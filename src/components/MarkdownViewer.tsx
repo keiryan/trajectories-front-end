@@ -55,15 +55,20 @@ const extractAnchorIds = (content: string): Map<string, string> => {
 
   // Parse line by line to find anchor tags followed by headings
   const lines = content.split("\n");
-  for (let i = 0; i < lines.length - 1; i++) {
+  for (let i = 0; i < lines.length; i++) {
     // Look for anchor tag on current line or combined with next line
     const currentLine = lines[i].trim();
-    const anchorMatch = currentLine.match(/<a\s+id=["']([^"']+)["']\s*><\/a>/);
+    const anchorMatch = currentLine.match(/<a\s+id=["']([^"']+)["']\s*><\/a>/i);
 
     if (anchorMatch) {
       const anchorId = anchorMatch[1];
-      // Check if next line is a heading
-      const nextLine = lines[i + 1]?.trim();
+      // Check following lines (skipping optional blank lines) for the heading
+      let nextIndex = i + 1;
+      while (nextIndex < lines.length && lines[nextIndex].trim() === "") {
+        nextIndex++;
+      }
+
+      const nextLine = lines[nextIndex]?.trim();
       if (nextLine && nextLine.match(/^#{1,6}\s+/)) {
         // Extract heading text (remove # and whitespace)
         const headingText = nextLine.replace(/^#{1,6}\s+/, "").trim();
@@ -82,7 +87,7 @@ const extractAnchorIds = (content: string): Map<string, string> => {
     } else {
       // Also check if anchor and heading are on the same line
       const combinedMatch = currentLine.match(
-        /<a\s+id=["']([^"']+)["']\s*><\/a>\s*(#{1,6})\s+(.+)/
+        /<a\s+id=["']([^"']+)["']\s*><\/a>\s*(#{1,6})\s+(.+)/i
       );
       if (combinedMatch) {
         const [, anchorId, , headingText] = combinedMatch;
