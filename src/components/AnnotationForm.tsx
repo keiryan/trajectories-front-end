@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { updateAnnotationNote } from "@/lib/airtable";
 import { toast } from "@/hooks/use-toast";
 import { Loader2, AlertCircle } from "lucide-react";
@@ -58,7 +59,19 @@ export const AnnotationForm = ({
   const [actionCorrectness, setActionCorrectness] = useState<string>("");
   const [reasoningQuality, setReasoningQuality] = useState<string>("");
   const [sandboxResponse, setSandboxResponse] = useState<string>("");
-  const [errorFlags, setErrorFlags] = useState<Record<string, boolean>>({
+
+  type ErrorFlagKey =
+    | "hallucination"
+    | "repetitionLoop"
+    | "misdiagnosis"
+    | "toolMisuse"
+    | "ignoredFeedback"
+    | "prematureConclusion"
+    | "scopeCreep"
+    | "na"
+    | "other";
+
+  const createInitialErrorFlags = (): Record<ErrorFlagKey, boolean> => ({
     hallucination: false,
     repetitionLoop: false,
     misdiagnosis: false,
@@ -66,7 +79,15 @@ export const AnnotationForm = ({
     ignoredFeedback: false,
     prematureConclusion: false,
     scopeCreep: false,
+    na: false,
+    other: false,
   });
+
+  const [errorFlags, setErrorFlags] = useState<Record<ErrorFlagKey, boolean>>(
+    createInitialErrorFlags
+  );
+  const [otherErrorExplanation, setOtherErrorExplanation] =
+    useState<string>("");
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPrefilled, setIsPrefilled] = useState(false);
@@ -99,15 +120,8 @@ export const AnnotationForm = ({
       setActionCorrectness("");
       setReasoningQuality("");
       setSandboxResponse("");
-      setErrorFlags({
-        hallucination: false,
-        repetitionLoop: false,
-        misdiagnosis: false,
-        toolMisuse: false,
-        ignoredFeedback: false,
-        prematureConclusion: false,
-        scopeCreep: false,
-      });
+      setErrorFlags(createInitialErrorFlags());
+      setOtherErrorExplanation("");
 
       // Update refs
       prevSectionIndexRef.current = sectionIndex;
@@ -152,21 +166,38 @@ export const AnnotationForm = ({
 
       // Handle errorFlags array
       if (prefilledData.errorFlags && Array.isArray(prefilledData.errorFlags)) {
-        const flags: Record<string, boolean> = {
-          hallucination: false,
-          repetitionLoop: false,
-          misdiagnosis: false,
-          toolMisuse: false,
-          ignoredFeedback: false,
-          prematureConclusion: false,
-          scopeCreep: false,
+        const flags = createInitialErrorFlags();
+        const normalizedMap: Record<string, ErrorFlagKey> = {
+          hallucination: "hallucination",
+          repetitionloop: "repetitionLoop",
+          misdiagnosis: "misdiagnosis",
+          toolmisuse: "toolMisuse",
+          ignoredfeedback: "ignoredFeedback",
+          prematureconclusion: "prematureConclusion",
+          scopecreep: "scopeCreep",
+          na: "na",
+          other: "other",
         };
+
         prefilledData.errorFlags.forEach((flag: string) => {
-          if (flag in flags) {
-            flags[flag] = true;
+          const normalizedFlag = flag
+            .toString()
+            .trim()
+            .toLowerCase();
+
+          const lookupKey = normalizedFlag.replace(/[^a-z]/g, "");
+
+          if (normalizedMap[lookupKey]) {
+            const key = normalizedMap[lookupKey];
+            flags[key] = true;
           }
         });
+
         setErrorFlags(flags);
+      }
+
+      if (typeof prefilledData.errorFlagOtherExplanation === "string") {
+        setOtherErrorExplanation(prefilledData.errorFlagOtherExplanation);
       }
 
       setIsPrefilled(true);
@@ -241,23 +272,49 @@ export const AnnotationForm = ({
     saveToAirtable("sandboxResponse", value);
   };
 
-  const toggleErrorFlag = async (flag: string) => {
-    const newValue = !errorFlags[flag];
-    setErrorFlags((prev) => ({
-      ...prev,
-      [flag]: newValue,
-    }));
-
-    // Get all selected error flags as an array
-    const selectedFlags = Object.entries({
+  const toggleErrorFlag = async (flag: ErrorFlagKey) => {
+    let updatedFlags: Record<ErrorFlagKey, boolean> = {
       ...errorFlags,
-      [flag]: newValue,
-    })
+      [flag]: !errorFlags[flag],
+    };
+
+    let shouldClearOtherExplanation = false;
+
+    if (flag === "na" && updatedFlags.na) {
+      updatedFlags = createInitialErrorFlags();
+      updatedFlags.na = true;
+      shouldClearOtherExplanation = errorFlags.other;
+    } else if (flag !== "na" && updatedFlags[flag]) {
+      updatedFlags.na = false;
+    }
+
+    if (flag === "other" && !updatedFlags.other) {
+      shouldClearOtherExplanation = true;
+    }
+
+    if (shouldClearOtherExplanation) {
+      setOtherErrorExplanation("");
+    }
+
+    setErrorFlags(updatedFlags);
+
+    const selectedFlags = Object.entries(updatedFlags)
       .filter(([, isSelected]) => isSelected)
       .map(([flagName]) => flagName);
 
-    // Save as an array
+    if (shouldClearOtherExplanation) {
+      await saveToAirtable("errorFlagOtherExplanation", "");
+    }
+
     await saveToAirtable("errorFlags", selectedFlags);
+  };
+
+  const handleOtherErrorExplanationChange = (value: string): void => {
+    setOtherErrorExplanation(value);
+  };
+
+  const handleOtherErrorExplanationBlur = async (value: string): Promise<void> => {
+    await saveToAirtable("errorFlagOtherExplanation", value);
   };
 
   return (
@@ -540,6 +597,65 @@ export const AnnotationForm = ({
               >
                 Scope Creep: Agent makes unrelated or unnecessary changes
               </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="na"
+                checked={errorFlags.na}
+                onCheckedChange={() => toggleErrorFlag("na")}
+                disabled={!taskNumber || saving === "errorFlags"}
+              />
+              <Label
+                htmlFor="na"
+                className="font-sans font-normal cursor-pointer"
+              >
+                N/A: No applicable errors for this step
+              </Label>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="other-error"
+                  checked={errorFlags.other}
+                  onCheckedChange={() => toggleErrorFlag("other")}
+                  disabled={!taskNumber || saving === "errorFlags"}
+                />
+                <Label
+                  htmlFor="other-error"
+                  className="font-sans font-normal cursor-pointer"
+                >
+                  Other
+                </Label>
+              </div>
+              {errorFlags.other && (
+                <div className="space-y-2 pl-6">
+                  <Label
+                    htmlFor="other-error-explanation"
+                    className="font-sans text-sm"
+                  >
+                    Please describe the issue
+                  </Label>
+                  <Textarea
+                    id="other-error-explanation"
+                    placeholder="Provide additional details"
+                    value={otherErrorExplanation}
+                    onChange={(event) =>
+                      handleOtherErrorExplanationChange(event.target.value)
+                    }
+                    onBlur={(event) => {
+                      void handleOtherErrorExplanationBlur(event.target.value);
+                    }}
+                    className="font-sans"
+                    required
+                    disabled={!taskNumber || saving === "errorFlagOtherExplanation"}
+                  />
+                  {!otherErrorExplanation.trim() && (
+                    <p className="text-sm text-destructive font-sans">
+                      Explanation is required when selecting "Other".
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

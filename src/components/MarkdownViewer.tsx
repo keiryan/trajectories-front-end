@@ -216,44 +216,83 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
   }, [content]);
 
   // Split processed content by <!-- MD ... --> comments and create segments - memoized
-  const segments = useMemo(() => {
-    if (!processedContent || typeof processedContent !== 'string') {
-      return [{ type: "markdown" as const, content: "" }];
+  type AnnotationMetadata = {
+    [key: string]: any;
+    role?: string;
+  } | null;
+
+  type Segment =
+    | { type: "markdown"; content: string }
+    | { type: "annotation"; content: string; heading: string | null; metadata: AnnotationMetadata };
+
+  const segments = useMemo<Segment[]>(() => {
+    if (!processedContent || typeof processedContent !== "string") {
+      return [{ type: "markdown", content: "" }];
     }
-    
+
     const mdCommentRegex = /<!--\s*MD[\s\S]*?-->/gi;
-    const segmentsArray: Array<{ type: "markdown" | "annotation"; content: string }> = [];
+    const segmentsArray: Segment[] = [];
 
     let lastIndex = 0;
-    let match;
+    let match: RegExpExecArray | null;
+    let lastHeading: string | null = null;
+
+    const updateLastHeading = (markdownChunk: string) => {
+      if (!markdownChunk) {
+        return;
+      }
+
+      const headingRegex = /^(#{1,6})\s+(.+)$/gm;
+      let headingMatch: RegExpExecArray | null;
+
+      while ((headingMatch = headingRegex.exec(markdownChunk)) !== null) {
+        lastHeading = headingMatch[2].trim();
+      }
+    };
+
+    const parseAnnotationMetadata = (comment: string): AnnotationMetadata => {
+      const metadataMatch = comment.match(/<!--\s*MD\s*(\{[\s\S]*?\})\s*-->/i);
+      if (!metadataMatch) {
+        return null;
+      }
+
+      try {
+        return JSON.parse(metadataMatch[1]);
+      } catch (error) {
+        console.warn("Failed to parse MD annotation metadata:", error);
+        return null;
+      }
+    };
 
     while ((match = mdCommentRegex.exec(processedContent)) !== null) {
-      // Add markdown before the comment
       if (match.index > lastIndex) {
+        const markdownChunk = processedContent.substring(lastIndex, match.index);
+        updateLastHeading(markdownChunk);
         segmentsArray.push({
           type: "markdown",
-          content: processedContent.substring(lastIndex, match.index),
+          content: markdownChunk,
         });
       }
 
-      // Add annotation form placeholder
       segmentsArray.push({
         type: "annotation",
         content: "",
+        heading: lastHeading,
+        metadata: parseAnnotationMetadata(match[0]),
       });
 
       lastIndex = match.index + match[0].length;
     }
 
-    // Add remaining markdown
     if (lastIndex < processedContent.length) {
+      const markdownChunk = processedContent.substring(lastIndex);
+      updateLastHeading(markdownChunk);
       segmentsArray.push({
         type: "markdown",
-        content: processedContent.substring(lastIndex),
+        content: markdownChunk,
       });
     }
 
-    // If no comments found, just render the full content
     if (segmentsArray.length === 0) {
       segmentsArray.push({
         type: "markdown",
@@ -263,6 +302,25 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
 
     return segmentsArray;
   }, [processedContent]);
+
+  const determineStepRole = (segment: Segment): string | null => {
+    if (segment.type !== "annotation") {
+      return null;
+    }
+
+    const metadataRole = segment.metadata?.role;
+    if (typeof metadataRole === "string" && metadataRole.trim() !== "") {
+      return metadataRole.trim().toLowerCase();
+    }
+
+    const headingText = segment.heading?.trim().toLowerCase() || "";
+    if (!headingText) {
+      return null;
+    }
+
+    const roleFromHeading = headingText.split("-")[0]?.trim();
+    return roleFromHeading ? roleFromHeading.toLowerCase() : null;
+  };
 
   // Create a helper to get metadata for a heading - memoized
   const getHeadingMetadata = useCallback(
@@ -547,10 +605,17 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
               .length + 1;
           // Use memoized annotation data to prevent unnecessary resets
           const prefilledData = annotationDataBySection[sectionIndex] || {};
+          const stepRole = determineStepRole(segment);
+          if (stepRole !== "assistant") {
+            return null;
+          }
           return (
-            <div data-annotation-section={sectionIndex}>
+            <div
+              key={`annotation-wrapper-${sectionIndex}-${url || ""}`}
+              data-annotation-section={sectionIndex}
+            >
               <AnnotationForm
-                key={`annotation-${sectionIndex}-${url || ''}`}
+                key={`annotation-${sectionIndex}-${url || ""}`}
                 url={url}
                 sectionIndex={sectionIndex}
                 prefilledData={prefilledData}
