@@ -14,6 +14,8 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   ArrowUpToLine,
   ArrowUp,
   BookmarkPlus,
@@ -66,6 +68,7 @@ const Index = () => {
   const [showJumpToTop, setShowJumpToTop] = useState(false);
   const [hasSectionAnchors, setHasSectionAnchors] = useState(false);
   const [marks, setMarks] = useState<ScrollMark[]>([]);
+  const [isMarkTrayCollapsed, setIsMarkTrayCollapsed] = useState(false);
 
   const sectionAnchorsRef = useRef<SectionAnchor[]>([]);
   const recalcRafRef = useRef<number | null>(null);
@@ -370,7 +373,14 @@ const Index = () => {
       return;
     }
     clearMarks();
+    setIsMarkTrayCollapsed(false);
   }, [clearMarks, marks.length]);
+
+  useEffect(() => {
+    if (marks.length === 0 && isMarkTrayCollapsed) {
+      setIsMarkTrayCollapsed(false);
+    }
+  }, [isMarkTrayCollapsed, marks.length]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -814,66 +824,97 @@ const Index = () => {
             <Card className="w-72 shadow-xl border-border/60 bg-background/95 backdrop-blur">
               <CardContent className="p-3 space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold font-sans">Marks</span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        onClick={handleClearAllMarks}
-                        aria-label="Clear all marks"
-                        disabled={marksSorted.length === 0}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">Clear all marks</TooltipContent>
-                  </Tooltip>
+                  <span className="text-sm font-semibold font-sans">
+                    Marks ({marksSorted.length})
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            setIsMarkTrayCollapsed((prevCollapsed) => !prevCollapsed)
+                          }
+                          aria-label={
+                            isMarkTrayCollapsed ? "Expand marks list" : "Collapse marks list"
+                          }
+                          aria-expanded={!isMarkTrayCollapsed}
+                        >
+                          {isMarkTrayCollapsed ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronUp className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        {isMarkTrayCollapsed ? "Expand marks" : "Collapse marks"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={handleClearAllMarks}
+                          aria-label="Clear all marks"
+                          disabled={marksSorted.length === 0}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">Clear all marks</TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
 
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {marksSorted.map((mark) => (
-                    <div
-                      key={mark.anchorId}
-                      className="rounded-md border border-border/60 bg-muted/50 p-2 space-y-2"
-                    >
-                      {mark.sectionTitle && (
-                        <p className="text-xs font-semibold font-sans text-primary/80 truncate">
-                          {mark.sectionTitle}
+                {!isMarkTrayCollapsed && (
+                  <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                    {marksSorted.map((mark) => (
+                      <div
+                        key={mark.anchorId}
+                        className="rounded-md border border-border/60 bg-muted/50 p-2 space-y-2"
+                      >
+                        {mark.sectionTitle && (
+                          <p className="text-xs font-semibold font-sans text-primary/80 truncate">
+                            {mark.sectionTitle}
+                          </p>
+                        )}
+                        <p className="text-xs font-sans text-muted-foreground line-clamp-3">
+                          {mark.snippet || "Marked location"}
                         </p>
-                      )}
-                      <p className="text-xs font-sans text-muted-foreground line-clamp-2">
-                        {mark.snippet || "Marked location"}
-                      </p>
-                      <div className="flex items-center justify-between gap-2">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="h-8 px-2 font-sans text-xs"
-                          onClick={() => handleJumpToMark(mark.anchorId)}
-                        >
-                          <MapPin className="mr-1 h-4 w-4" />
-                          Jump
-                        </Button>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                              onClick={() => handleRemoveMark(mark.anchorId)}
-                              aria-label="Remove mark"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="left">Remove mark</TooltipContent>
-                        </Tooltip>
+                        <div className="flex items-center justify-between gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 px-2 font-sans text-xs"
+                            onClick={() => handleJumpToMark(mark.anchorId)}
+                          >
+                            <MapPin className="mr-1 h-4 w-4" />
+                            Jump
+                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleRemoveMark(mark.anchorId)}
+                                aria-label="Remove mark"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">Remove mark</TooltipContent>
+                          </Tooltip>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
