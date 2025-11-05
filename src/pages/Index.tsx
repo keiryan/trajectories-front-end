@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MarkdownViewer } from "@/components/MarkdownViewer";
+import {
+  MarkdownViewer,
+  AnnotationSectionProgressData,
+} from "@/components/MarkdownViewer";
 import { MarkdownColorSettings } from "@/components/MarkdownColorSettings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Loader2,
@@ -12,8 +25,6 @@ import {
   AlertCircle,
   ListChecks,
   ExternalLink,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   ArrowUpToLine,
@@ -21,9 +32,14 @@ import {
   BookmarkPlus,
   MapPin,
   Trash2,
+  CheckCircle2,
+  Circle,
+  CircleDashed,
+  ListTree,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { getRecordsByUniqueId } from "@/lib/airtable";
+import { cn } from "@/lib/utils";
 
 const USER_ID_STORAGE_KEY = "markdown_viewer_user_id";
 
@@ -64,11 +80,16 @@ const Index = () => {
   const [selectedTaskLink, setSelectedTaskLink] = useState<string | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskError, setTaskError] = useState<string | null>(null);
-  const [isTasksCollapsed, setIsTasksCollapsed] = useState(false);
   const [showJumpToTop, setShowJumpToTop] = useState(false);
   const [hasSectionAnchors, setHasSectionAnchors] = useState(false);
   const [marks, setMarks] = useState<ScrollMark[]>([]);
   const [isMarkTrayCollapsed, setIsMarkTrayCollapsed] = useState(false);
+  const [isTaskSheetOpen, setIsTaskSheetOpen] = useState(false);
+  const [isTocSheetOpen, setIsTocSheetOpen] = useState(false);
+  const [sectionAnchors, setSectionAnchors] = useState<SectionAnchor[]>([]);
+  const [annotationProgress, setAnnotationProgress] = useState<
+    Record<number, AnnotationSectionProgressData>
+  >({});
 
   const sectionAnchorsRef = useRef<SectionAnchor[]>([]);
   const recalcRafRef = useRef<number | null>(null);
@@ -90,6 +111,7 @@ const Index = () => {
     if (!article) {
       if (sectionAnchorsRef.current.length > 0) {
         sectionAnchorsRef.current = [];
+        setSectionAnchors([]);
         setHasSectionAnchors(false);
       }
       return;
@@ -108,6 +130,7 @@ const Index = () => {
     sections.sort((a, b) => a.top - b.top);
 
     sectionAnchorsRef.current = sections;
+    setSectionAnchors(sections);
     setHasSectionAnchors(sections.length > 0);
   }, []);
 
@@ -176,6 +199,7 @@ const Index = () => {
 
     if (!markdown) {
       setHasSectionAnchors(false);
+      setSectionAnchors([]);
       clearMarks();
       setShowJumpToTop((prev) => (prev ? false : prev));
       return;
@@ -213,6 +237,12 @@ const Index = () => {
       }
     };
   }, [markdown, clearMarks, scheduleSectionMeasurement]);
+
+  useEffect(() => {
+    if (!markdown) {
+      setAnnotationProgress({});
+    }
+  }, [markdown]);
 
   useEffect(() => {
     if (!markdown) {
@@ -376,6 +406,19 @@ const Index = () => {
     setIsMarkTrayCollapsed(false);
   }, [clearMarks, marks.length]);
 
+  const handleSectionNavigation = useCallback((anchorId: string) => {
+    if (!anchorId) {
+      return;
+    }
+
+    const href = `#${anchorId}`;
+    window.history.pushState(null, "", href);
+    const element = document.getElementById(anchorId);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, []);
+
   useEffect(() => {
     if (marks.length === 0 && isMarkTrayCollapsed) {
       setIsMarkTrayCollapsed(false);
@@ -399,6 +442,134 @@ const Index = () => {
   }, [marks]);
   const shouldShowFloatingControls =
     Boolean(markdown) && (shouldShowSectionTopButton || marksSorted.length > 0 || showJumpToTop || shouldShowMarkButton);
+
+  const handleAnnotationProgressChange = useCallback(
+    (sectionIndex: number, data: AnnotationSectionProgressData) => {
+      setAnnotationProgress((prev) => {
+        const existing = prev[sectionIndex];
+        if (
+          existing &&
+          existing.answeredQuestions === data.answeredQuestions &&
+          existing.totalQuestions === data.totalQuestions &&
+          existing.isComplete === data.isComplete &&
+          existing.headingId === data.headingId &&
+          existing.headingTitle === data.headingTitle
+        ) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [sectionIndex]: data,
+        };
+      });
+    },
+    []
+  );
+
+  const annotationProgressByHeadingId = useMemo(() => {
+    const map: Record<string, AnnotationSectionProgressData> = {};
+    Object.values(annotationProgress).forEach((progress) => {
+      if (progress.headingId) {
+        map[progress.headingId] = progress;
+      }
+    });
+    return map;
+  }, [annotationProgress]);
+
+  const annotationProgressList = useMemo(
+    () =>
+      Object.values(annotationProgress).sort(
+        (a, b) => a.sectionIndex - b.sectionIndex
+      ),
+    [annotationProgress]
+  );
+
+  const totalAnnotationSteps = annotationProgressList.length;
+  const completedAnnotationSteps = annotationProgressList.filter(
+    (progress) => progress.isComplete
+  ).length;
+  const completionPercentage =
+    totalAnnotationSteps > 0
+      ? Math.round((completedAnnotationSteps / totalAnnotationSteps) * 100)
+      : 0;
+
+  const renderSectionList = (closeSheet?: () => void) => (
+    <div className="space-y-2">
+      {sectionAnchors.map((anchor) => {
+        const progress = annotationProgressByHeadingId[anchor.id];
+        const answered = progress?.answeredQuestions ?? 0;
+        const total = progress?.totalQuestions ?? 5;
+        const hasProgress = Boolean(progress);
+        const isComplete = progress?.isComplete ?? false;
+        const isInProgress = hasProgress && !isComplete && answered > 0;
+
+        const statusIcon = isComplete ? (
+          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+        ) : isInProgress ? (
+          <CircleDashed className="h-4 w-4 text-amber-500" />
+        ) : hasProgress ? (
+          <Circle className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <Circle className="h-4 w-4 text-muted-foreground" />
+        );
+
+        const badgeVariant = isComplete
+          ? "default"
+          : isInProgress
+          ? "secondary"
+          : "outline";
+
+        const statusLabel = isComplete
+          ? "Complete"
+          : isInProgress
+          ? "In Progress"
+          : hasProgress
+          ? "Not Started"
+          : "";
+
+        return (
+          <button
+            key={anchor.id}
+            type="button"
+            onClick={() => {
+              handleSectionNavigation(anchor.id);
+              if (closeSheet) {
+                closeSheet();
+              }
+            }}
+            className={cn(
+              "w-full rounded-lg border px-3 py-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+              isComplete
+                ? "border-emerald-300/70 bg-emerald-50/60 dark:border-emerald-500/40 dark:bg-emerald-950/30"
+                : isInProgress
+                ? "border-amber-300/70 bg-amber-50/60 dark:border-amber-500/40 dark:bg-amber-950/30"
+                : "border-border/60 hover:bg-muted/60"
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {statusIcon}
+                <span className="text-sm font-semibold font-sans">
+                  {anchor.title}
+                </span>
+              </div>
+              {hasProgress && statusLabel && (
+                <Badge variant={badgeVariant} className="shrink-0">
+                  {statusLabel}
+                </Badge>
+              )}
+            </div>
+            {hasProgress && (
+              <p className="mt-1 text-xs text-muted-foreground font-sans">
+                {answered} / {total} questions answered
+              </p>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
 
   const fetchTasksForUser = async (id: string) => {
     setLoadingTasks(true);
@@ -523,6 +694,7 @@ const Index = () => {
     if (taskLink) {
       setSelectedTask(task);
       fetchMarkdown(taskLink);
+      setIsTaskSheetOpen(false);
     } else {
       toast({
         title: "Error",
@@ -541,6 +713,9 @@ const Index = () => {
     setSelectedTaskLink(null);
     setSelectedTask(null);
     setTaskError(null);
+    setAnnotationProgress({});
+    setSectionAnchors([]);
+    setHasSectionAnchors(false);
   };
 
   return (
@@ -642,177 +817,268 @@ const Index = () => {
         )}
 
         {hasUserId && (
-          <div className="flex gap-6 mb-8">
-            {/* Tasks List */}
-            <div
-              className={`transition-all duration-300 ease-in-out shrink-0 ${
-                isTasksCollapsed
-                  ? "w-0 opacity-0 overflow-hidden pointer-events-none"
-                  : "w-full lg:w-1/3 opacity-100"
-              }`}
-            >
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between gap-2 mb-4">
-                    <div className="flex items-center gap-2">
-                      <ListChecks className="h-5 w-5 text-primary" />
-                      <h2 className="text-xl font-semibold font-sans">Tasks</h2>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setIsTasksCollapsed(true)}
-                      className="h-8 w-8"
-                      aria-label="Collapse tasks"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
+          <div className="mb-8 space-y-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Sheet open={isTaskSheetOpen} onOpenChange={setIsTaskSheetOpen}>
+                  <SheetTrigger asChild>
+                    <Button variant="outline" className="gap-2 font-sans">
+                      <ListChecks className="h-4 w-4" />
+                      View Tasks
                     </Button>
-                  </div>
-
-                  {loadingTasks && (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="text-center">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground font-sans">
-                          Loading tasks...
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {taskError && !loadingTasks && (
-                    <Card className="p-4 border-destructive/50 bg-destructive/5">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
-                        <div className="text-sm text-destructive font-sans">
-                          {taskError}
+                  </SheetTrigger>
+                  <SheetContent side="left" className="w-full sm:max-w-md overflow-hidden">
+                    <SheetHeader>
+                      <SheetTitle className="flex items-center gap-2">
+                        <ListChecks className="h-5 w-5 text-primary" />
+                        <span className="font-sans">Tasks</span>
+                      </SheetTitle>
+                      <p className="text-sm text-muted-foreground font-sans">
+                        Select a task to load its markdown content.
+                      </p>
+                    </SheetHeader>
+                    <div className="mt-6 flex h-full flex-col gap-4">
+                      {loadingTasks && (
+                        <div className="flex flex-1 items-center justify-center">
+                          <div className="text-center">
+                            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
+                            <p className="text-sm text-muted-foreground font-sans">
+                              Loading tasks...
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    </Card>
-                  )}
+                      )}
 
-                  {!loadingTasks && !taskError && tasks.length > 0 && (
-                    <div className="space-y-2">
-                      {tasks.map((task) => {
-                        const taskNumber = task.fields["Task Number"] || "N/A";
-                        const taskLink = task.fields["Link to Task"];
-                        const status = task.fields["Status"] || "Unknown";
-                        const isSelected = selectedTaskLink === taskLink;
-
-                        return (
-                          <Card
-                            key={task.id}
-                            className={`p-4 cursor-pointer transition-colors ${
-                              isSelected
-                                ? "border-primary bg-primary/5"
-                                : "hover:bg-accent"
-                            }`}
-                            onClick={() => handleTaskClick(task)}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex-1">
-                                <div className="font-semibold font-sans mb-1">
-                                  Task #{taskNumber}
-                                </div>
-                                {taskLink && (
-                                  <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                    <ExternalLink className="h-3 w-3" />
-                                    <span className="truncate font-sans">
-                                      {taskLink.length > 40
-                                        ? `${taskLink.substring(0, 40)}...`
-                                        : taskLink}
-                                    </span>
-                                  </div>
-                                )}
-                                {status && (
-                                  <div className="mt-2">
-                                    <span className="inline-block px-2 py-1 text-xs rounded-full bg-secondary text-secondary-foreground font-sans">
-                                      {status}
-                                    </span>
-                                  </div>
-                                )}
+                      {!loadingTasks && taskError && (
+                        <Card className="border-destructive/50 bg-destructive/5">
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-2">
+                              <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+                              <div className="text-sm text-destructive font-sans">
+                                {taskError}
                               </div>
                             </div>
-                          </Card>
-                        );
-                      })}
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {!loadingTasks && !taskError && tasks.length > 0 && (
+                        <ScrollArea className="flex-1 pr-2">
+                          <div className="space-y-2 pb-4">
+                            {tasks.map((task) => {
+                              const taskNumber = task.fields["Task Number"] || "N/A";
+                              const taskLink = task.fields["Link to Task"];
+                              const status = task.fields["Status"] || "Unknown";
+                              const isSelected = selectedTaskLink === taskLink;
+
+                              return (
+                                <Card
+                                  key={task.id}
+                                  className={cn(
+                                    "cursor-pointer transition-colors",
+                                    isSelected
+                                      ? "border-primary bg-primary/10"
+                                      : "hover:bg-muted"
+                                  )}
+                                  onClick={() => handleTaskClick(task)}
+                                >
+                                  <CardContent className="p-4">
+                                    <div className="flex flex-col gap-2">
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="font-semibold font-sans">
+                                          Task #{taskNumber}
+                                        </span>
+                                        {status && (
+                                          <Badge variant="secondary" className="font-sans">
+                                            {status}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      {taskLink && (
+                                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                          <ExternalLink className="h-3 w-3" />
+                                          <span className="truncate font-sans">
+                                            {taskLink.length > 40
+                                              ? `${taskLink.substring(0, 40)}...`
+                                              : taskLink}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+                          </div>
+                        </ScrollArea>
+                      )}
+
+                      {!loadingTasks && !taskError && tasks.length === 0 && (
+                        <div className="flex flex-1 items-center justify-center text-center text-muted-foreground font-sans">
+                          No tasks available
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </SheetContent>
+                </Sheet>
 
-                  {!loadingTasks && !taskError && tasks.length === 0 && (
-                    <div className="text-center py-8 text-muted-foreground font-sans">
-                      No tasks available
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+                {sectionAnchors.length > 0 && (
+                  <Sheet open={isTocSheetOpen} onOpenChange={setIsTocSheetOpen}>
+                    <SheetTrigger asChild>
+                      <Button variant="outline" className="gap-2 font-sans">
+                        <ListTree className="h-4 w-4" />
+                        Sections
+                      </Button>
+                    </SheetTrigger>
+                    <SheetContent side="right" className="w-full sm:max-w-md overflow-hidden">
+                      <SheetHeader>
+                        <SheetTitle className="flex items-center gap-2">
+                          <ListTree className="h-5 w-5 text-primary" />
+                          <span className="font-sans">Table of Contents</span>
+                        </SheetTitle>
+                        <p className="text-sm text-muted-foreground font-sans">
+                          Track section completion and jump around the document.
+                        </p>
+                      </SheetHeader>
+                      <div className="mt-6 flex h-full flex-col gap-4">
+                        {totalAnnotationSteps > 0 && (
+                          <div className="rounded-lg border border-border/60 p-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-semibold font-sans">
+                                {completedAnnotationSteps} / {totalAnnotationSteps} steps complete
+                              </span>
+                              <Badge
+                                variant={completionPercentage === 100 ? "default" : "secondary"}
+                                className="font-sans"
+                              >
+                                {completionPercentage}%
+                              </Badge>
+                            </div>
+                            <Progress value={completionPercentage} className="mt-3 h-2" />
+                          </div>
+                        )}
+                        <ScrollArea className="flex-1 pr-2">
+                          <div className="pb-4">
+                            {renderSectionList(() => setIsTocSheetOpen(false))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    </SheetContent>
+                  </Sheet>
+                )}
+              </div>
 
-            {/* Collapse Button when tasks are collapsed */}
-            {isTasksCollapsed && (
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setIsTasksCollapsed(false)}
-                className="h-10 w-10 shrink-0 self-start sticky top-8"
-                aria-label="Expand tasks"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            )}
-
-            {/* Markdown Viewer */}
-            <div className="flex-1 min-w-0 transition-all duration-300">
-              {loading && !markdown && (
-                <div className="flex items-center justify-center min-h-[400px]">
-                  <div className="text-center">
-                    <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-                    <p className="text-muted-foreground font-sans">
-                      Loading markdown...
-                    </p>
-                  </div>
+              {selectedTask && (
+                <div className="text-sm text-muted-foreground font-sans">
+                  Viewing Task #{selectedTask.fields["Task Number"] || "N/A"}
+                  {selectedTask.fields["Status"]
+                    ? ` • ${selectedTask.fields["Status"]}`
+                    : ""}
                 </div>
               )}
+            </div>
 
-              {error && (
-                <Card className="p-6 border-destructive/50 bg-destructive/5">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
+            {totalAnnotationSteps > 0 && (
+              <Card className="border-primary/40 bg-primary/5">
+                <CardContent className="p-4 md:p-6 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h3 className="font-semibold font-sans text-destructive mb-1">
-                        Error Loading Markdown
+                      <h3 className="text-lg font-semibold font-sans text-foreground">
+                        Task Progress
                       </h3>
                       <p className="text-sm text-muted-foreground font-sans">
-                        {error}
+                        {completedAnnotationSteps} of {totalAnnotationSteps} steps completed
+                      </p>
+                    </div>
+                    <Badge
+                      variant={completionPercentage === 100 ? "default" : "secondary"}
+                      className="font-sans"
+                    >
+                      {completionPercentage}% Complete
+                    </Badge>
+                  </div>
+                  <Progress value={completionPercentage} className="h-2" />
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex flex-col xl:flex-row gap-6">
+              <div className="flex-1 min-w-0">
+                {loading && !markdown && (
+                  <div className="flex items-center justify-center min-h-[400px]">
+                    <div className="text-center">
+                      <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+                      <p className="text-muted-foreground font-sans">
+                        Loading markdown...
                       </p>
                     </div>
                   </div>
-                </Card>
-              )}
+                )}
 
-              {!markdown && !loading && !error && (
-                <Card className="p-12 text-center">
-                  <Github className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                  <h2 className="text-2xl font-semibold font-sans mb-2">
-                    Select a Task
-                  </h2>
-                  <p className="text-muted-foreground font-sans max-w-md mx-auto">
-                    Select a task from the list on the left to view its markdown
-                    content.
-                  </p>
-                </Card>
-              )}
+                {error && (
+                  <Card className="p-6 border-destructive/50 bg-destructive/5">
+                    <div className="flex items-start gap-3">
+                      <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold font-sans text-destructive mb-1">
+                          Error Loading Markdown
+                        </h3>
+                        <p className="text-sm text-muted-foreground font-sans">
+                          {error}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
 
-              {markdown && !error && (
-                <Card className="p-8 md:p-12 max-w-4xl mx-auto overflow-hidden">
-                  <div className="max-w-full overflow-x-auto">
-                    <MarkdownViewer
-                      content={markdown}
-                      url={selectedTaskLink || undefined}
-                      selectedTask={selectedTask || undefined}
-                    />
-                  </div>
-                </Card>
+                {!markdown && !loading && !error && (
+                  <Card className="p-12 text-center">
+                    <Github className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
+                    <h2 className="text-2xl font-semibold font-sans mb-2">
+                      Select a Task
+                    </h2>
+                    <p className="text-muted-foreground font-sans max-w-md mx-auto">
+                      Use the task list to choose a task and load its markdown content.
+                    </p>
+                  </Card>
+                )}
+
+                {markdown && !error && (
+                  <Card className="p-8 md:p-12 max-w-4xl mx-auto overflow-hidden">
+                    <div className="max-w-full overflow-x-auto">
+                      <MarkdownViewer
+                        content={markdown}
+                        url={selectedTaskLink || undefined}
+                        selectedTask={selectedTask || undefined}
+                        onAnnotationProgressChange={handleAnnotationProgressChange}
+                        sectionProgressMap={annotationProgress}
+                      />
+                    </div>
+                  </Card>
+                )}
+              </div>
+
+              {sectionAnchors.length > 0 && (
+                <aside className="hidden xl:block w-80 shrink-0">
+                  <Card className="sticky top-24">
+                    <CardContent className="p-4 space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-semibold font-sans uppercase tracking-wide text-muted-foreground">
+                          Sections
+                        </h3>
+                        {totalAnnotationSteps > 0 && (
+                          <Badge
+                            variant={completionPercentage === 100 ? "default" : "secondary"}
+                            className="font-sans"
+                          >
+                            {completedAnnotationSteps}/{totalAnnotationSteps}
+                          </Badge>
+                        )}
+                      </div>
+                      {renderSectionList()}
+                    </CardContent>
+                  </Card>
+                </aside>
               )}
             </div>
           </div>

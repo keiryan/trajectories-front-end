@@ -14,6 +14,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { updateAnnotationNote } from "@/lib/airtable";
 import { toast } from "@/hooks/use-toast";
 import { Loader2, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+export interface AnnotationFormCompletionStatus {
+  answeredQuestions: number;
+  totalQuestions: number;
+  isComplete: boolean;
+}
 
 interface Task {
   id: string;
@@ -28,6 +36,8 @@ interface AnnotationFormProps {
   sectionIndex: number;
   prefilledData?: Record<string, any>;
   selectedTask?: Task;
+  onCompletionChange?: (status: AnnotationFormCompletionStatus) => void;
+  statusVariant?: "complete" | "incomplete";
 }
 
 // Extract task number from URL
@@ -53,6 +63,8 @@ export const AnnotationForm = ({
   sectionIndex,
   prefilledData = {},
   selectedTask,
+  onCompletionChange,
+  statusVariant = "incomplete",
 }: AnnotationFormProps) => {
   const [actionCategory, setActionCategory] = useState<string>("");
   const [otherActionCategory, setOtherActionCategory] = useState<string>("");
@@ -91,11 +103,16 @@ export const AnnotationForm = ({
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPrefilled, setIsPrefilled] = useState(false);
+  const onCompletionChangeRef = useRef<typeof onCompletionChange>();
 
   // Use ref to track previous prefilledData to avoid unnecessary resets
   const prevPrefilledDataRef = useRef<string>("");
   const prevSectionIndexRef = useRef<number>(-1);
   const prevUrlRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    onCompletionChangeRef.current = onCompletionChange;
+  }, [onCompletionChange]);
 
   // Get task number from selectedTask first, then fall back to URL extraction
   const taskNumber =
@@ -317,11 +334,67 @@ export const AnnotationForm = ({
     await saveToAirtable("errorFlagOtherExplanation", value);
   };
 
+  const totalQuestions = 5;
+
+  useEffect(() => {
+    const hasActionCategory =
+      actionCategory !== "" &&
+      (actionCategory !== "other" || otherActionCategory.trim().length > 0);
+    const hasActionCorrectness = actionCorrectness !== "";
+    const hasReasoningQuality = reasoningQuality !== "";
+    const hasSandboxResponse = sandboxResponse !== "";
+    const hasAnyErrorFlag = Object.values(errorFlags).some(Boolean);
+    const hasValidOtherExplanation =
+      !errorFlags.other || otherErrorExplanation.trim().length > 0;
+
+    const answeredQuestions = [
+      hasActionCategory,
+      hasActionCorrectness,
+      hasReasoningQuality,
+      hasSandboxResponse,
+      hasAnyErrorFlag && hasValidOtherExplanation,
+    ].filter(Boolean).length;
+
+    const isComplete = answeredQuestions === totalQuestions;
+
+    const callback = onCompletionChangeRef.current;
+    if (callback) {
+      callback({
+        answeredQuestions,
+        totalQuestions,
+        isComplete,
+      });
+    }
+  }, [
+    actionCategory,
+    otherActionCategory,
+    actionCorrectness,
+    reasoningQuality,
+    sandboxResponse,
+    errorFlags,
+    otherErrorExplanation,
+  ]);
+
   return (
-    <Card className="my-8 p-6 border-2 border-primary/20 bg-card">
-      <h4 className="text-lg font-semibold mb-4 font-sans">
-        Step-by-Step Annotation
-      </h4>
+    <Card
+      className={cn(
+        "my-8 p-6 border-2 transition-colors duration-300",
+        statusVariant === "complete"
+          ? "border-emerald-400/60 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-950/40"
+          : "border-primary/20 bg-card"
+      )}
+    >
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h4 className="text-lg font-semibold font-sans">
+          Step-by-Step Annotation
+        </h4>
+        <Badge
+          variant={statusVariant === "complete" ? "default" : "secondary"}
+          className="whitespace-nowrap"
+        >
+          {statusVariant === "complete" ? "Complete" : "In Progress"}
+        </Badge>
+      </div>
       {!taskNumber && (
         <div className="mb-4 p-3 bg-destructive/10 border border-destructive/50 rounded-md">
           <div className="flex items-start gap-2">
