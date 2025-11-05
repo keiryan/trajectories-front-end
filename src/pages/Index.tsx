@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownViewer } from "@/components/MarkdownViewer";
 import { MarkdownColorSettings } from "@/components/MarkdownColorSettings";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Loader2,
   Github,
@@ -13,12 +14,33 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
   ArrowUpToLine,
+  ArrowUp,
+  BookmarkPlus,
+  MapPin,
+  Trash2,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { getRecordsByUniqueId } from "@/lib/airtable";
 
 const USER_ID_STORAGE_KEY = "markdown_viewer_user_id";
+
+type SectionAnchor = {
+  id: string;
+  title: string;
+  top: number;
+};
+
+type ScrollMark = {
+  anchorId: string;
+  snippet: string;
+  sectionTitle: string | null;
+  createdAt: number;
+};
+
+const SECTION_SCROLL_OFFSET = 160;
 
 interface Task {
   id: string;
@@ -44,6 +66,13 @@ const Index = () => {
   const [taskError, setTaskError] = useState<string | null>(null);
   const [isTasksCollapsed, setIsTasksCollapsed] = useState(false);
   const [showJumpToTop, setShowJumpToTop] = useState(false);
+  const [hasSectionAnchors, setHasSectionAnchors] = useState(false);
+  const [marks, setMarks] = useState<ScrollMark[]>([]);
+  const [isMarkTrayCollapsed, setIsMarkTrayCollapsed] = useState(false);
+
+  const sectionAnchorsRef = useRef<SectionAnchor[]>([]);
+  const recalcRafRef = useRef<number | null>(null);
+  const markRegistryRef = useRef<Record<string, { anchor: HTMLElement; target: HTMLElement }>>({});
 
   // Load userId from localStorage on mount
   useEffect(() => {
@@ -55,30 +84,158 @@ const Index = () => {
     }
   }, []);
 
-  // Show/hide jump to top button based on scroll position - throttled for performance
+  const recalcSections = useCallback(() => {
+    const article = document.querySelector<HTMLElement>(".markdown-content");
+
+    if (!article) {
+      if (sectionAnchorsRef.current.length > 0) {
+        sectionAnchorsRef.current = [];
+        setHasSectionAnchors(false);
+      }
+      return;
+    }
+
+    const headingElements = Array.from(
+      article.querySelectorAll<HTMLElement>("[data-anchor-section='true']")
+    );
+
+    const sections = headingElements.map<SectionAnchor>((element) => ({
+      id: element.id,
+      title: element.dataset.sectionTitle?.trim() || element.textContent?.trim() || element.id,
+      top: element.getBoundingClientRect().top + window.scrollY,
+    }));
+
+    sections.sort((a, b) => a.top - b.top);
+
+    sectionAnchorsRef.current = sections;
+    setHasSectionAnchors(sections.length > 0);
+  }, []);
+
+  const scheduleSectionMeasurement = useCallback(() => {
+    if (recalcRafRef.current !== null) {
+      cancelAnimationFrame(recalcRafRef.current);
+    }
+
+    recalcRafRef.current = window.requestAnimationFrame(() => {
+      recalcSections();
+      recalcRafRef.current = null;
+    });
+  }, [recalcSections]);
+
+  const findSectionForOffset = useCallback((offset: number): SectionAnchor | null => {
+    const sections = sectionAnchorsRef.current;
+    if (sections.length === 0) {
+      return null;
+    }
+
+    let candidate: SectionAnchor | null = sections[0];
+    for (let i = 0; i < sections.length; i += 1) {
+      const section = sections[i];
+      if (section.top <= offset + SECTION_SCROLL_OFFSET) {
+        candidate = section;
+      } else {
+        break;
+      }
+    }
+
+    return candidate;
+  }, []);
+
+  const removeMarkFromDom = useCallback((anchorId: string) => {
+    const entry = markRegistryRef.current[anchorId];
+    if (!entry) {
+      return;
+    }
+
+    const { anchor, target } = entry;
+
+    if (target) {
+      target.classList.remove("marked-scroll-target");
+      if (target.getAttribute("data-mark-highlight") === anchorId) {
+        target.removeAttribute("data-mark-highlight");
+      }
+    }
+
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.removeChild(anchor);
+    }
+
+    delete markRegistryRef.current[anchorId];
+  }, []);
+
+  const clearMarks = useCallback(() => {
+    const anchorIds = Object.keys(markRegistryRef.current);
+    anchorIds.forEach((id) => removeMarkFromDom(id));
+
+    markRegistryRef.current = {};
+    setMarks((prev) => (prev.length > 0 ? [] : prev));
+  }, [removeMarkFromDom]);
+
   useEffect(() => {
+    sectionAnchorsRef.current = [];
+
+    if (!markdown) {
+      setHasSectionAnchors(false);
+      clearMarks();
+      setShowJumpToTop((prev) => (prev ? false : prev));
+      return;
+    }
+
+    clearMarks();
+    scheduleSectionMeasurement();
+
+    window.addEventListener("resize", scheduleSectionMeasurement);
+
+    const article = document.querySelector(".markdown-content");
+    let resizeObserver: ResizeObserver | null = null;
+
+    if (article && "ResizeObserver" in window) {
+      resizeObserver = new ResizeObserver(() => {
+        scheduleSectionMeasurement();
+      });
+      resizeObserver.observe(article);
+    }
+
+    const timeoutIds = [
+      window.setTimeout(scheduleSectionMeasurement, 400),
+      window.setTimeout(scheduleSectionMeasurement, 1200),
+    ];
+
+    return () => {
+      if (recalcRafRef.current !== null) {
+        cancelAnimationFrame(recalcRafRef.current);
+        recalcRafRef.current = null;
+      }
+      window.removeEventListener("resize", scheduleSectionMeasurement);
+      timeoutIds.forEach((id) => window.clearTimeout(id));
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [markdown, clearMarks, scheduleSectionMeasurement]);
+
+  useEffect(() => {
+    if (!markdown) {
+      setShowJumpToTop(false);
+      return;
+    }
+
     let rafId: number | null = null;
-    let lastShowJumpToTop = false;
 
     const handleScroll = () => {
-      // Cancel any pending animation frame
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
 
       rafId = window.requestAnimationFrame(() => {
-        const showJumpToTop = window.scrollY > 300;
-        // Only update state if value actually changed
-        if (showJumpToTop !== lastShowJumpToTop) {
-          setShowJumpToTop(showJumpToTop);
-          lastShowJumpToTop = showJumpToTop;
-        }
+        const shouldShowJumpToTop = window.scrollY > 300;
+        setShowJumpToTop((prev) => (prev === shouldShowJumpToTop ? prev : shouldShowJumpToTop));
         rafId = null;
       });
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll(); // Check initial position
+    handleScroll();
 
     return () => {
       if (rafId !== null) {
@@ -86,11 +243,162 @@ const Index = () => {
       }
       window.removeEventListener("scroll", handleScroll);
     };
+  }, [markdown]);
+
+  const handleJumpToSectionTop = useCallback(() => {
+    if (!hasSectionAnchors) {
+      return;
+    }
+
+    const activeSection = findSectionForOffset(window.scrollY);
+    if (!activeSection) {
+      return;
+    }
+
+    const element = document.getElementById(activeSection.id);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+
+    window.scrollTo({ top: activeSection.top, behavior: "smooth" });
+  }, [findSectionForOffset, hasSectionAnchors]);
+
+  const handleCreateMark = useCallback(() => {
+    if (!markdown) {
+      return;
+    }
+
+    const contentRoot = document.querySelector<HTMLElement>(".markdown-content");
+    if (!contentRoot) {
+      return;
+    }
+
+    const viewportX = window.innerWidth / 2;
+    const viewportY = Math.min(window.innerHeight * 0.35, window.innerHeight - 1);
+    let element = document.elementFromPoint(viewportX, viewportY) as HTMLElement | null;
+
+    if (!element) {
+      element = contentRoot.firstElementChild as HTMLElement | null;
+    }
+
+    if (!element) {
+      return;
+    }
+
+    if (!contentRoot.contains(element)) {
+      element = element.closest(".markdown-content *") as HTMLElement | null;
+    }
+
+    if (!element) {
+      return;
+    }
+
+    while (element.parentElement && element.parentElement !== contentRoot) {
+      element = element.parentElement as HTMLElement;
+    }
+
+    if (!element) {
+      return;
+    }
+
+    const anchorId = `mark-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const existingAnchorId = element.getAttribute("data-mark-highlight");
+    if (existingAnchorId && markRegistryRef.current[existingAnchorId]) {
+      toast({
+        title: "Mark already exists",
+        description: "This location is already bookmarked.",
+      });
+      return;
+    }
+
+    const anchor = document.createElement("span");
+    anchor.id = anchorId;
+    anchor.dataset.dynamicMarkAnchor = "true";
+    anchor.style.position = "relative";
+    anchor.style.display = "block";
+    anchor.style.height = "0";
+    anchor.style.width = "0";
+
+    contentRoot.insertBefore(anchor, element);
+
+    element.classList.add("marked-scroll-target");
+    element.setAttribute("data-mark-highlight", anchorId);
+
+    const snippetSource = element.textContent?.trim() ?? "";
+    const snippet = snippetSource.length > 140 ? `${snippetSource.slice(0, 137)}…` : snippetSource;
+
+    const anchorPosition = anchor.getBoundingClientRect().top + window.scrollY;
+    const section = findSectionForOffset(anchorPosition);
+
+    markRegistryRef.current[anchorId] = { anchor, target: element };
+
+    setMarks((prev) => [
+      ...prev,
+      {
+        anchorId,
+        snippet,
+        sectionTitle: section?.title ?? null,
+        createdAt: Date.now(),
+      },
+    ]);
+
+    toast({
+      title: "Marked location",
+      description: section?.title ? `Saved in section: ${section.title}` : "Bookmark added.",
+    });
+
+    scheduleSectionMeasurement();
+  }, [findSectionForOffset, markdown, scheduleSectionMeasurement, toast]);
+
+  const handleJumpToMark = useCallback((anchorId: string) => {
+    const element = document.getElementById(anchorId);
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
   }, []);
+
+  const handleRemoveMark = useCallback(
+    (anchorId: string) => {
+      removeMarkFromDom(anchorId);
+      setMarks((prev) => prev.filter((mark) => mark.anchorId !== anchorId));
+      scheduleSectionMeasurement();
+    },
+    [removeMarkFromDom, scheduleSectionMeasurement]
+  );
+
+  const handleClearAllMarks = useCallback(() => {
+    if (marks.length === 0) {
+      return;
+    }
+    clearMarks();
+    setIsMarkTrayCollapsed(false);
+  }, [clearMarks, marks.length]);
+
+  useEffect(() => {
+    if (marks.length === 0 && isMarkTrayCollapsed) {
+      setIsMarkTrayCollapsed(false);
+    }
+  }, [isMarkTrayCollapsed, marks.length]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  const floatingButtonClass =
+    "h-12 w-12 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-2 hover:bg-background";
+
+  const shouldShowSectionTopButton = hasSectionAnchors;
+  const shouldShowMarkButton = Boolean(markdown);
+  const marksSorted = useMemo(() => {
+    if (marks.length <= 1) {
+      return marks;
+    }
+    return [...marks].sort((a, b) => b.createdAt - a.createdAt);
+  }, [marks]);
+  const shouldShowFloatingControls =
+    Boolean(markdown) && (shouldShowSectionTopButton || marksSorted.length > 0 || showJumpToTop || shouldShowMarkButton);
 
   const fetchTasksForUser = async (id: string) => {
     setLoadingTasks(true);
@@ -510,16 +818,160 @@ const Index = () => {
           </div>
         )}
       </main>
-      {showJumpToTop && (
-        <Button
-          variant="outline"
-          size="icon"
-          className="fixed bottom-6 right-6 z-50 h-12 w-12 rounded-full shadow-lg bg-background/90 backdrop-blur-sm border-2 hover:bg-background"
-          onClick={scrollToTop}
-          aria-label="Jump to top"
-        >
-          <ArrowUpToLine className="h-5 w-5" />
-        </Button>
+      {shouldShowFloatingControls && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+          {marksSorted.length > 0 && (
+            <Card className="w-72 shadow-xl border-border/60 bg-background/95 backdrop-blur">
+              <CardContent className="p-3 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold font-sans">
+                    Marks ({marksSorted.length})
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={() =>
+                            setIsMarkTrayCollapsed((prevCollapsed) => !prevCollapsed)
+                          }
+                          aria-label={
+                            isMarkTrayCollapsed ? "Expand marks list" : "Collapse marks list"
+                          }
+                          aria-expanded={!isMarkTrayCollapsed}
+                        >
+                          {isMarkTrayCollapsed ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronUp className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">
+                        {isMarkTrayCollapsed ? "Expand marks" : "Collapse marks"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={handleClearAllMarks}
+                          aria-label="Clear all marks"
+                          disabled={marksSorted.length === 0}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">Clear all marks</TooltipContent>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                {!isMarkTrayCollapsed && (
+                  <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                    {marksSorted.map((mark) => (
+                      <div
+                        key={mark.anchorId}
+                        className="rounded-md border border-border/60 bg-muted/50 p-2 space-y-2"
+                      >
+                        {mark.sectionTitle && (
+                          <p className="text-xs font-semibold font-sans text-primary/80 truncate">
+                            {mark.sectionTitle}
+                          </p>
+                        )}
+                        <p className="text-xs font-sans text-muted-foreground line-clamp-3">
+                          {mark.snippet || "Marked location"}
+                        </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 px-2 font-sans text-xs"
+                            onClick={() => handleJumpToMark(mark.anchorId)}
+                          >
+                            <MapPin className="mr-1 h-4 w-4" />
+                            Jump
+                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                onClick={() => handleRemoveMark(mark.anchorId)}
+                                aria-label="Remove mark"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">Remove mark</TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="flex flex-col gap-3">
+            {shouldShowSectionTopButton && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={floatingButtonClass}
+                    onClick={handleJumpToSectionTop}
+                    aria-label="Jump to top of section"
+                  >
+                    <ArrowUp className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Jump to top of current section</TooltipContent>
+              </Tooltip>
+            )}
+
+            {shouldShowMarkButton && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={floatingButtonClass}
+                    onClick={handleCreateMark}
+                    aria-label="Create mark at current position"
+                  >
+                    <BookmarkPlus className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Save a mark at the current position</TooltipContent>
+              </Tooltip>
+            )}
+
+            {showJumpToTop && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={floatingButtonClass}
+                    onClick={scrollToTop}
+                    aria-label="Jump to top"
+                  >
+                    <ArrowUpToLine className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Jump to top of document</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
