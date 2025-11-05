@@ -309,10 +309,11 @@ export const AnnotationForm = ({
     await saveToAirtable("errorFlags", selectedFlags);
   };
 
-  const handleOtherErrorExplanationChange = async (
-    value: string
-  ): Promise<void> => {
+  const handleOtherErrorExplanationChange = (value: string): void => {
     setOtherErrorExplanation(value);
+  };
+
+  const handleOtherErrorExplanationBlur = async (value: string): Promise<void> => {
     await saveToAirtable("errorFlagOtherExplanation", value);
   };
 
@@ -641,6 +642,9 @@ export const AnnotationForm = ({
                     onChange={(event) =>
                       handleOtherErrorExplanationChange(event.target.value)
                     }
+                    onBlur={(event) => {
+                      void handleOtherErrorExplanationBlur(event.target.value);
+                    }}
                     className="font-sans"
                     required
                     disabled={!taskNumber || saving === "errorFlagOtherExplanation"}
