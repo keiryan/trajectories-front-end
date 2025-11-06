@@ -2,8 +2,17 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { AnnotationForm } from "./AnnotationForm";
+import { AnnotationForm, AnnotationFormCompletionStatus } from "./AnnotationForm";
 import { useEffect, useRef, useMemo, useCallback } from "react";
+
+export interface AnnotationSectionProgressData {
+  sectionIndex: number;
+  headingId: string | null;
+  headingTitle: string | null;
+  totalQuestions: number;
+  answeredQuestions: number;
+  isComplete: boolean;
+}
 
 interface Task {
   id: string;
@@ -18,6 +27,11 @@ interface MarkdownViewerProps {
   content: string;
   url?: string;
   selectedTask?: Task;
+  onAnnotationProgressChange?: (
+    sectionIndex: number,
+    data: AnnotationSectionProgressData,
+  ) => void;
+  sectionProgressMap?: Record<number, AnnotationSectionProgressData>;
 }
 
 // Extract text content from React children
@@ -133,7 +147,13 @@ const extractAnchorIds = (content: string): Map<string, string> => {
   return anchorMap;
 };
 
-export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerProps) => {
+export const MarkdownViewer = ({
+  content,
+  url,
+  selectedTask,
+  onAnnotationProgressChange,
+  sectionProgressMap,
+}: MarkdownViewerProps) => {
   // Extract anchor IDs from the content - memoized
   const anchorIds = useMemo(() => {
     if (!content || typeof content !== 'string') return new Map<string, string>();
@@ -609,10 +629,27 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
           if (stepRole !== "assistant") {
             return null;
           }
+          const headingTitle = segment.heading ?? null;
+          const headingKey = headingTitle ? generateId(headingTitle) : null;
+          const headingId = headingKey
+            ? anchorIds.get(headingKey) ?? headingKey
+            : null;
+          const sectionProgress = sectionProgressMap?.[sectionIndex];
+          const handleCompletionChange = (status: AnnotationFormCompletionStatus) => {
+            onAnnotationProgressChange?.(sectionIndex, {
+              sectionIndex,
+              headingId,
+              headingTitle,
+              answeredQuestions: status.answeredQuestions,
+              totalQuestions: status.totalQuestions,
+              isComplete: status.isComplete,
+            });
+          };
           return (
             <div
               key={`annotation-wrapper-${sectionIndex}-${url || ""}`}
               data-annotation-section={sectionIndex}
+              data-annotation-heading-id={headingId || undefined}
             >
               <AnnotationForm
                 key={`annotation-${sectionIndex}-${url || ""}`}
@@ -620,6 +657,8 @@ export const MarkdownViewer = ({ content, url, selectedTask }: MarkdownViewerPro
                 sectionIndex={sectionIndex}
                 prefilledData={prefilledData}
                 selectedTask={selectedTask}
+                onCompletionChange={handleCompletionChange}
+                statusVariant={sectionProgress?.isComplete ? "complete" : "incomplete"}
               />
             </div>
           );
