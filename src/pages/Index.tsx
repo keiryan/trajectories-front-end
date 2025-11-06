@@ -25,13 +25,13 @@ import {
   AlertCircle,
   ListChecks,
   ExternalLink,
-  ChevronDown,
-  ChevronUp,
   ArrowUpToLine,
   ArrowUp,
+  Bookmark,
   BookmarkPlus,
   MapPin,
   Trash2,
+  X,
   CheckCircle2,
   Circle,
   CircleDashed,
@@ -83,7 +83,7 @@ const Index = () => {
   const [showJumpToTop, setShowJumpToTop] = useState(false);
   const [hasSectionAnchors, setHasSectionAnchors] = useState(false);
   const [marks, setMarks] = useState<ScrollMark[]>([]);
-  const [isMarkTrayCollapsed, setIsMarkTrayCollapsed] = useState(false);
+  const [isMarksPanelOpen, setIsMarksPanelOpen] = useState(false);
   const [isTaskSheetOpen, setIsTaskSheetOpen] = useState(false);
   const [isTocSheetOpen, setIsTocSheetOpen] = useState(false);
   const [sectionAnchors, setSectionAnchors] = useState<SectionAnchor[]>([]);
@@ -403,7 +403,7 @@ const Index = () => {
       return;
     }
     clearMarks();
-    setIsMarkTrayCollapsed(false);
+    setIsMarksPanelOpen(false);
   }, [clearMarks, marks.length]);
 
   const handleSectionNavigation = useCallback((anchorId: string) => {
@@ -420,10 +420,10 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    if (marks.length === 0 && isMarkTrayCollapsed) {
-      setIsMarkTrayCollapsed(false);
+    if (marks.length === 0 && isMarksPanelOpen) {
+      setIsMarksPanelOpen(false);
     }
-  }, [isMarkTrayCollapsed, marks.length]);
+  }, [isMarksPanelOpen, marks.length]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -1088,7 +1088,7 @@ const Index = () => {
       </main>
       {shouldShowFloatingControls && (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-          {marksSorted.length > 0 && (
+          {isMarksPanelOpen && marksSorted.length > 0 && (
             <Card className="w-72 shadow-xl border-border/60 bg-background/95 backdrop-blur">
               <CardContent className="p-3 space-y-3">
                 <div className="flex items-center justify-between gap-2">
@@ -1096,31 +1096,6 @@ const Index = () => {
                     Marks ({marksSorted.length})
                   </span>
                   <div className="flex items-center gap-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                          onClick={() =>
-                            setIsMarkTrayCollapsed((prevCollapsed) => !prevCollapsed)
-                          }
-                          aria-label={
-                            isMarkTrayCollapsed ? "Expand marks list" : "Collapse marks list"
-                          }
-                          aria-expanded={!isMarkTrayCollapsed}
-                        >
-                          {isMarkTrayCollapsed ? (
-                            <ChevronDown className="h-4 w-4" />
-                          ) : (
-                            <ChevronUp className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="left">
-                        {isMarkTrayCollapsed ? "Expand marks" : "Collapse marks"}
-                      </TooltipContent>
-                    </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
@@ -1136,58 +1111,95 @@ const Index = () => {
                       </TooltipTrigger>
                       <TooltipContent side="left">Clear all marks</TooltipContent>
                     </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                          onClick={() => setIsMarksPanelOpen(false)}
+                          aria-label="Hide marks list"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left">Hide marks</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
 
-                {!isMarkTrayCollapsed && (
-                  <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-                    {marksSorted.map((mark) => (
-                      <div
-                        key={mark.anchorId}
-                        className="rounded-md border border-border/60 bg-muted/50 p-2 space-y-2"
-                      >
-                        {mark.sectionTitle && (
-                          <p className="text-xs font-semibold font-sans text-primary/80 truncate">
-                            {mark.sectionTitle}
-                          </p>
-                        )}
-                        <p className="text-xs font-sans text-muted-foreground line-clamp-3">
-                          {mark.snippet || "Marked location"}
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+                  {marksSorted.map((mark) => (
+                    <div
+                      key={mark.anchorId}
+                      className="rounded-md border border-border/60 bg-muted/50 p-2 space-y-2"
+                    >
+                      {mark.sectionTitle && (
+                        <p className="text-xs font-semibold font-sans text-primary/80 truncate">
+                          {mark.sectionTitle}
                         </p>
-                        <div className="flex items-center justify-between gap-2">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="h-8 px-2 font-sans text-xs"
-                            onClick={() => handleJumpToMark(mark.anchorId)}
-                          >
-                            <MapPin className="mr-1 h-4 w-4" />
-                            Jump
-                          </Button>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                onClick={() => handleRemoveMark(mark.anchorId)}
-                                aria-label="Remove mark"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="left">Remove mark</TooltipContent>
-                          </Tooltip>
-                        </div>
+                      )}
+                      <p className="text-xs font-sans text-muted-foreground line-clamp-3">
+                        {mark.snippet || "Marked location"}
+                      </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 px-2 font-sans text-xs"
+                          onClick={() => handleJumpToMark(mark.anchorId)}
+                        >
+                          <MapPin className="mr-1 h-4 w-4" />
+                          Jump
+                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              onClick={() => handleRemoveMark(mark.anchorId)}
+                              aria-label="Remove mark"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">Remove mark</TooltipContent>
+                        </Tooltip>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col items-end gap-3">
+            {marksSorted.length > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className={cn(floatingButtonClass, "relative")}
+                    onClick={() => setIsMarksPanelOpen((prev) => !prev)}
+                    aria-label={isMarksPanelOpen ? "Hide marks list" : "Show marks list"}
+                    aria-pressed={isMarksPanelOpen}
+                  >
+                    <Bookmark className="h-5 w-5" />
+                    {marksSorted.length > 0 && (
+                      <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-primary px-1 text-[0.65rem] font-semibold leading-none text-primary-foreground">
+                        {marksSorted.length}
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  {isMarksPanelOpen ? "Hide marks" : "Show marks"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+
             {shouldShowSectionTopButton && (
               <Tooltip>
                 <TooltipTrigger asChild>
