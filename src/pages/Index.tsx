@@ -1060,7 +1060,7 @@ const Index = () => {
 
               {sectionAnchors.length > 0 && (
                 <aside className="hidden xl:block w-80 shrink-0">
-                  <Card className="sticky top-24 flex max-h-[calc(100vh-6rem)] flex-col overflow-hidden">
+                  <Card className="sticky top-24 flex h-[calc(100vh-6rem)] flex-col overflow-hidden">
                     <CardContent className="flex min-h-0 flex-1 flex-col p-4">
                       <div className="flex items-center justify-between gap-2">
                         <h3 className="text-sm font-semibold font-sans uppercase tracking-wide text-muted-foreground">
@@ -1075,7 +1075,7 @@ const Index = () => {
                           </Badge>
                         )}
                       </div>
-                      <ScrollArea className="-mr-2 mt-4 flex-1 pr-2">
+                      <ScrollArea type="always" className="-mr-2 mt-4 flex-1 pr-2">
                         <div className="space-y-2 pb-4">{renderSectionList()}</div>
                       </ScrollArea>
                     </CardContent>
