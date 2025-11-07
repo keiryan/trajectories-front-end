@@ -1,6 +1,21 @@
 // API base path - uses Vercel API routes
 const API_BASE = "/api";
 
+export type TimestampedValue<T> = {
+  value: T;
+  timestamp: number;
+};
+
+export type AnnotationNotePrimitive =
+  | string
+  | boolean
+  | string[]
+  | TimestampedValue<string>[];
+
+export type AnnotationNoteValue =
+  | AnnotationNotePrimitive
+  | TimestampedValue<AnnotationNotePrimitive>;
+
 export interface AirtableUpdateFields {
   [key: string]: string | boolean | string[];
 }
@@ -175,12 +190,6 @@ export const getRecordsByUniqueId = async (
 /**
  * Update a single annotation field in the Annotation Notes JSON
  */
-export type AnnotationNoteValue =
-  | string
-  | boolean
-  | string[]
-  | { value: string | boolean | string[]; timestamp: number };
-
 export const updateAnnotationNote = async (
   taskNumber: string,
   key: string,
