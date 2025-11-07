@@ -12,6 +12,10 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { updateAnnotationNote } from "@/lib/airtable";
+import type {
+  TimestampedValue,
+  AnnotationNotePrimitive,
+} from "@/lib/airtable";
 import { toast } from "@/hooks/use-toast";
 import { Loader2, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -58,6 +62,55 @@ const extractTaskNumber = (url: string | undefined): string | null => {
   }
 };
 
+const getUnixTimestamp = () => Math.floor(Date.now() / 1000);
+
+const createTimestampedValue = <T,>(
+  value: T,
+  timestamp?: number
+): TimestampedValue<T> => ({
+  value,
+  timestamp: timestamp ?? getUnixTimestamp(),
+});
+
+const isTimestampedValue = <T,>(value: unknown): value is TimestampedValue<T> =>
+  typeof value === "object" &&
+  value !== null &&
+  "value" in value &&
+  "timestamp" in value;
+
+const unwrapTimestampedValue = <T,>(
+  value: T | TimestampedValue<T> | undefined
+): T | undefined => {
+  if (isTimestampedValue<T>(value)) {
+    return value.value;
+  }
+
+  return value as T | undefined;
+};
+
+type ErrorFlagKey =
+  | "hallucination"
+  | "repetitionLoop"
+  | "misdiagnosis"
+  | "toolMisuse"
+  | "ignoredFeedback"
+  | "prematureConclusion"
+  | "scopeCreep"
+  | "na"
+  | "other";
+
+const createInitialErrorFlags = (): Record<ErrorFlagKey, boolean> => ({
+  hallucination: false,
+  repetitionLoop: false,
+  misdiagnosis: false,
+  toolMisuse: false,
+  ignoredFeedback: false,
+  prematureConclusion: false,
+  scopeCreep: false,
+  na: false,
+  other: false,
+});
+
 export const AnnotationForm = ({
   url,
   sectionIndex,
@@ -72,29 +125,6 @@ export const AnnotationForm = ({
   const [reasoningQuality, setReasoningQuality] = useState<string>("");
   const [sandboxResponse, setSandboxResponse] = useState<string>("");
 
-  type ErrorFlagKey =
-    | "hallucination"
-    | "repetitionLoop"
-    | "misdiagnosis"
-    | "toolMisuse"
-    | "ignoredFeedback"
-    | "prematureConclusion"
-    | "scopeCreep"
-    | "na"
-    | "other";
-
-  const createInitialErrorFlags = (): Record<ErrorFlagKey, boolean> => ({
-    hallucination: false,
-    repetitionLoop: false,
-    misdiagnosis: false,
-    toolMisuse: false,
-    ignoredFeedback: false,
-    prematureConclusion: false,
-    scopeCreep: false,
-    na: false,
-    other: false,
-  });
-
   const [errorFlags, setErrorFlags] = useState<Record<ErrorFlagKey, boolean>>(
     createInitialErrorFlags
   );
@@ -104,6 +134,9 @@ export const AnnotationForm = ({
   const [error, setError] = useState<string | null>(null);
   const [isPrefilled, setIsPrefilled] = useState(false);
   const onCompletionChangeRef = useRef<typeof onCompletionChange>();
+  const errorFlagTimestampsRef = useRef<
+    Partial<Record<ErrorFlagKey, number>>
+  >({});
 
   // Use ref to track previous prefilledData to avoid unnecessary resets
   const prevPrefilledDataRef = useRef<string>("");
@@ -151,9 +184,10 @@ export const AnnotationForm = ({
   useEffect(() => {
     if (!isPrefilled && Object.keys(prefilledData).length > 0) {
       // Handle actionCategory
-      if (prefilledData.actionCategory) {
-        const categoryValue = prefilledData.actionCategory;
-        // Check if it's "other" or a custom value
+      const prefilledActionCategory = unwrapTimestampedValue<string>(
+        prefilledData.actionCategory
+      );
+      if (typeof prefilledActionCategory === "string") {
         const standardCategories = [
           "file-exploration",
           "code-analysis",
@@ -161,28 +195,45 @@ export const AnnotationForm = ({
           "test-execution",
           "environment-setup",
         ];
-        if (standardCategories.includes(categoryValue)) {
-          setActionCategory(categoryValue);
+        if (standardCategories.includes(prefilledActionCategory)) {
+          setActionCategory(prefilledActionCategory);
         } else {
           // It's a custom "other" value
           setActionCategory("other");
-          setOtherActionCategory(categoryValue);
+          setOtherActionCategory(prefilledActionCategory);
         }
       }
 
       // Handle other dropdown fields
-      if (prefilledData.actionCorrectness) {
-        setActionCorrectness(prefilledData.actionCorrectness);
+      const prefilledActionCorrectness = unwrapTimestampedValue<string>(
+        prefilledData.actionCorrectness
+      );
+      if (typeof prefilledActionCorrectness === "string") {
+        setActionCorrectness(prefilledActionCorrectness);
       }
-      if (prefilledData.reasoningQuality) {
-        setReasoningQuality(prefilledData.reasoningQuality);
+
+      const prefilledReasoningQuality = unwrapTimestampedValue<string>(
+        prefilledData.reasoningQuality
+      );
+      if (typeof prefilledReasoningQuality === "string") {
+        setReasoningQuality(prefilledReasoningQuality);
       }
-      if (prefilledData.sandboxResponse) {
-        setSandboxResponse(prefilledData.sandboxResponse);
+
+      const prefilledSandboxResponse = unwrapTimestampedValue<string>(
+        prefilledData.sandboxResponse
+      );
+      if (typeof prefilledSandboxResponse === "string") {
+        setSandboxResponse(prefilledSandboxResponse);
       }
 
       // Handle errorFlags array
-      if (prefilledData.errorFlags && Array.isArray(prefilledData.errorFlags)) {
+      const prefilledErrorFlags = unwrapTimestampedValue<
+        Array<string | TimestampedValue<string>>
+      >(prefilledData.errorFlags);
+
+      const timestampMap: Partial<Record<ErrorFlagKey, number>> = {};
+
+      if (Array.isArray(prefilledErrorFlags)) {
         const flags = createInitialErrorFlags();
         const normalizedMap: Record<string, ErrorFlagKey> = {
           hallucination: "hallucination",
@@ -196,39 +247,54 @@ export const AnnotationForm = ({
           other: "other",
         };
 
-        prefilledData.errorFlags.forEach((flag: string) => {
-          const normalizedFlag = flag
-            .toString()
-            .trim()
-            .toLowerCase();
+        prefilledErrorFlags.forEach((flagEntry) => {
+          let rawFlag: string | undefined;
+          let timestamp: number | undefined;
 
+          if (isTimestampedValue<string>(flagEntry)) {
+            if (typeof flagEntry.value === "string") {
+              rawFlag = flagEntry.value;
+              timestamp = flagEntry.timestamp;
+            }
+          } else if (typeof flagEntry === "string") {
+            rawFlag = flagEntry;
+          }
+
+          if (!rawFlag) {
+            return;
+          }
+
+          const normalizedFlag = rawFlag.toString().trim().toLowerCase();
           const lookupKey = normalizedFlag.replace(/[^a-z]/g, "");
 
           if (normalizedMap[lookupKey]) {
             const key = normalizedMap[lookupKey];
             flags[key] = true;
+            const resolvedTimestamp =
+              typeof timestamp === "number" ? timestamp : getUnixTimestamp();
+            timestampMap[key] = resolvedTimestamp;
           }
         });
 
         setErrorFlags(flags);
       }
 
-      if (typeof prefilledData.errorFlagOtherExplanation === "string") {
-        setOtherErrorExplanation(prefilledData.errorFlagOtherExplanation);
+      errorFlagTimestampsRef.current = timestampMap;
+
+      const prefilledOtherErrorExplanation = unwrapTimestampedValue<string>(
+        prefilledData.errorFlagOtherExplanation
+      );
+      if (typeof prefilledOtherErrorExplanation === "string") {
+        setOtherErrorExplanation(prefilledOtherErrorExplanation);
       }
 
       setIsPrefilled(true);
     }
   }, [prefilledData, isPrefilled]);
 
-  // Generate JSON key in format: {taskNumber}_{sectionIndex}_{fieldName}
-  const getJsonKey = (fieldName: string) => {
-    return `${taskNumber}_${sectionIndex}_${fieldName}`;
-  };
-
   // Save to Airtable when a field changes
   const saveToAirtable = useCallback(
-    async (fieldName: string, value: string | boolean | string[]) => {
+    async (fieldName: string, value: AnnotationNotePrimitive) => {
       if (!taskNumber) {
         setError("Unable to determine task number");
         toast({
@@ -244,8 +310,9 @@ export const AnnotationForm = ({
       setError(null);
 
       try {
-        const jsonKey = getJsonKey(fieldName);
-        await updateAnnotationNote(taskNumber, jsonKey, value);
+        const jsonKey = `${taskNumber}_${sectionIndex}_${fieldName}`;
+        const timestampedValue = createTimestampedValue(value);
+        await updateAnnotationNote(taskNumber, jsonKey, timestampedValue);
 
         toast({
           title: "Saved",
@@ -317,13 +384,28 @@ export const AnnotationForm = ({
 
     const selectedFlags = Object.entries(updatedFlags)
       .filter(([, isSelected]) => isSelected)
-      .map(([flagName]) => flagName);
+      .map(([flagName]) => flagName as ErrorFlagKey);
+
+    const nextTimestamps: Partial<Record<ErrorFlagKey, number>> = {};
+    const now = getUnixTimestamp();
+
+    selectedFlags.forEach((flagKey) => {
+      const existingTimestamp = errorFlagTimestampsRef.current[flagKey];
+      nextTimestamps[flagKey] =
+        typeof existingTimestamp === "number" ? existingTimestamp : now;
+    });
+
+    errorFlagTimestampsRef.current = nextTimestamps;
+
+    const timestampedFlags = selectedFlags.map((flagKey) =>
+      createTimestampedValue(flagKey, nextTimestamps[flagKey])
+    );
 
     if (shouldClearOtherExplanation) {
       await saveToAirtable("errorFlagOtherExplanation", "");
     }
 
-    await saveToAirtable("errorFlags", selectedFlags);
+    await saveToAirtable("errorFlags", timestampedFlags);
   };
 
   const handleOtherErrorExplanationChange = (value: string): void => {
