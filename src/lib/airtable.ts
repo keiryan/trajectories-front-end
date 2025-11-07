@@ -175,10 +175,16 @@ export const getRecordsByUniqueId = async (
 /**
  * Update a single annotation field in the Annotation Notes JSON
  */
+export type AnnotationNoteValue =
+  | string
+  | boolean
+  | string[]
+  | { value: string | boolean | string[]; timestamp: number };
+
 export const updateAnnotationNote = async (
   taskNumber: string,
   key: string,
-  value: string | boolean | string[]
+  value: AnnotationNoteValue
 ): Promise<void> => {
   const record = await getRecordByTaskNumber(taskNumber);
 

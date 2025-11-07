@@ -58,6 +58,49 @@ const extractTaskNumber = (url: string | undefined): string | null => {
   }
 };
 
+type TimestampedValue<T> = {
+  value: T;
+  timestamp: number;
+};
+
+const createTimestampedValue = <T,>(value: T): TimestampedValue<T> => ({
+  value,
+  timestamp: Math.floor(Date.now() / 1000),
+});
+
+const unwrapTimestampedValue = <T,>(
+  value: T | TimestampedValue<T> | undefined
+): T | undefined => {
+  if (typeof value === "object" && value !== null && "value" in value) {
+    return (value as TimestampedValue<T>).value;
+  }
+
+  return value as T | undefined;
+};
+
+type ErrorFlagKey =
+  | "hallucination"
+  | "repetitionLoop"
+  | "misdiagnosis"
+  | "toolMisuse"
+  | "ignoredFeedback"
+  | "prematureConclusion"
+  | "scopeCreep"
+  | "na"
+  | "other";
+
+const createInitialErrorFlags = (): Record<ErrorFlagKey, boolean> => ({
+  hallucination: false,
+  repetitionLoop: false,
+  misdiagnosis: false,
+  toolMisuse: false,
+  ignoredFeedback: false,
+  prematureConclusion: false,
+  scopeCreep: false,
+  na: false,
+  other: false,
+});
+
 export const AnnotationForm = ({
   url,
   sectionIndex,
@@ -71,29 +114,6 @@ export const AnnotationForm = ({
   const [actionCorrectness, setActionCorrectness] = useState<string>("");
   const [reasoningQuality, setReasoningQuality] = useState<string>("");
   const [sandboxResponse, setSandboxResponse] = useState<string>("");
-
-  type ErrorFlagKey =
-    | "hallucination"
-    | "repetitionLoop"
-    | "misdiagnosis"
-    | "toolMisuse"
-    | "ignoredFeedback"
-    | "prematureConclusion"
-    | "scopeCreep"
-    | "na"
-    | "other";
-
-  const createInitialErrorFlags = (): Record<ErrorFlagKey, boolean> => ({
-    hallucination: false,
-    repetitionLoop: false,
-    misdiagnosis: false,
-    toolMisuse: false,
-    ignoredFeedback: false,
-    prematureConclusion: false,
-    scopeCreep: false,
-    na: false,
-    other: false,
-  });
 
   const [errorFlags, setErrorFlags] = useState<Record<ErrorFlagKey, boolean>>(
     createInitialErrorFlags
@@ -151,9 +171,10 @@ export const AnnotationForm = ({
   useEffect(() => {
     if (!isPrefilled && Object.keys(prefilledData).length > 0) {
       // Handle actionCategory
-      if (prefilledData.actionCategory) {
-        const categoryValue = prefilledData.actionCategory;
-        // Check if it's "other" or a custom value
+      const prefilledActionCategory = unwrapTimestampedValue<string>(
+        prefilledData.actionCategory
+      );
+      if (typeof prefilledActionCategory === "string") {
         const standardCategories = [
           "file-exploration",
           "code-analysis",
@@ -161,28 +182,42 @@ export const AnnotationForm = ({
           "test-execution",
           "environment-setup",
         ];
-        if (standardCategories.includes(categoryValue)) {
-          setActionCategory(categoryValue);
+        if (standardCategories.includes(prefilledActionCategory)) {
+          setActionCategory(prefilledActionCategory);
         } else {
           // It's a custom "other" value
           setActionCategory("other");
-          setOtherActionCategory(categoryValue);
+          setOtherActionCategory(prefilledActionCategory);
         }
       }
 
       // Handle other dropdown fields
-      if (prefilledData.actionCorrectness) {
-        setActionCorrectness(prefilledData.actionCorrectness);
+      const prefilledActionCorrectness = unwrapTimestampedValue<string>(
+        prefilledData.actionCorrectness
+      );
+      if (typeof prefilledActionCorrectness === "string") {
+        setActionCorrectness(prefilledActionCorrectness);
       }
-      if (prefilledData.reasoningQuality) {
-        setReasoningQuality(prefilledData.reasoningQuality);
+
+      const prefilledReasoningQuality = unwrapTimestampedValue<string>(
+        prefilledData.reasoningQuality
+      );
+      if (typeof prefilledReasoningQuality === "string") {
+        setReasoningQuality(prefilledReasoningQuality);
       }
-      if (prefilledData.sandboxResponse) {
-        setSandboxResponse(prefilledData.sandboxResponse);
+
+      const prefilledSandboxResponse = unwrapTimestampedValue<string>(
+        prefilledData.sandboxResponse
+      );
+      if (typeof prefilledSandboxResponse === "string") {
+        setSandboxResponse(prefilledSandboxResponse);
       }
 
       // Handle errorFlags array
-      if (prefilledData.errorFlags && Array.isArray(prefilledData.errorFlags)) {
+      const prefilledErrorFlags = unwrapTimestampedValue<string[]>(
+        prefilledData.errorFlags
+      );
+      if (Array.isArray(prefilledErrorFlags)) {
         const flags = createInitialErrorFlags();
         const normalizedMap: Record<string, ErrorFlagKey> = {
           hallucination: "hallucination",
@@ -196,7 +231,7 @@ export const AnnotationForm = ({
           other: "other",
         };
 
-        prefilledData.errorFlags.forEach((flag: string) => {
+        prefilledErrorFlags.forEach((flag: string) => {
           const normalizedFlag = flag
             .toString()
             .trim()
@@ -213,18 +248,16 @@ export const AnnotationForm = ({
         setErrorFlags(flags);
       }
 
-      if (typeof prefilledData.errorFlagOtherExplanation === "string") {
-        setOtherErrorExplanation(prefilledData.errorFlagOtherExplanation);
+      const prefilledOtherErrorExplanation = unwrapTimestampedValue<string>(
+        prefilledData.errorFlagOtherExplanation
+      );
+      if (typeof prefilledOtherErrorExplanation === "string") {
+        setOtherErrorExplanation(prefilledOtherErrorExplanation);
       }
 
       setIsPrefilled(true);
     }
   }, [prefilledData, isPrefilled]);
-
-  // Generate JSON key in format: {taskNumber}_{sectionIndex}_{fieldName}
-  const getJsonKey = (fieldName: string) => {
-    return `${taskNumber}_${sectionIndex}_${fieldName}`;
-  };
 
   // Save to Airtable when a field changes
   const saveToAirtable = useCallback(
@@ -244,8 +277,9 @@ export const AnnotationForm = ({
       setError(null);
 
       try {
-        const jsonKey = getJsonKey(fieldName);
-        await updateAnnotationNote(taskNumber, jsonKey, value);
+        const jsonKey = `${taskNumber}_${sectionIndex}_${fieldName}`;
+        const timestampedValue = createTimestampedValue(value);
+        await updateAnnotationNote(taskNumber, jsonKey, timestampedValue);
 
         toast({
           title: "Saved",
